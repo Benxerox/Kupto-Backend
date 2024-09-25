@@ -27,10 +27,10 @@ const uploadFileRouter = require('./routes/uploadFileRoute');
 const cookieParser = require('cookie-parser');
 const { notFound, errorHandler } = require('./middlewares/errorHandler');
 const morgan = require('morgan');
-const cors = require('cors');
+//const cors = require('cors');
 dbConnect();
 
-app.use(cors());
+//app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 app.use(bodyParser.json());
@@ -62,6 +62,11 @@ app.use((err, req, res, next) => {
 
 app.use(notFound);
 app.use(errorHandler);
+
+const cors = require('cors');
+app.use(cors({
+  origin: 'https://kupto2020.netlify.app'
+}))
 
 
 app.listen(PORT, ()=>{
