@@ -60,6 +60,11 @@ app.use('/api/enquiry', enquiryRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/uploadFile', uploadFileRouter);
 
+// Root route
+app.get('/', (req, res) => {
+  res.send('Welcome to the homepage!');
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   res.status(500).json({ message: err.message });
@@ -68,11 +73,6 @@ app.use((err, req, res, next) => {
 // Not Found and Error Handler
 app.use(notFound);
 app.use(errorHandler);
-
-// Root route
-app.get('/', (req, res) => {
-  res.send('Welcome to the homepage!');
-});
 
 // Start the server
 app.listen(PORT, () => {
