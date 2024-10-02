@@ -60,6 +60,7 @@ app.use('/api/enquiry', enquiryRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/uploadFile', uploadFileRouter);
 
+
 // Root route
 app.get('/', (req, res) => {
   res.send('Welcome to the homepage!');
