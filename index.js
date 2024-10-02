@@ -41,7 +41,8 @@ app.use(cookieParser());
 
 // CORS settings
 app.use(cors({
-  origin: 'https://kupto2020.netlify.app'
+  origin: ['https://kupto2020.com', 'http://localhost:5000'], // Add other origins as needed
+  credentials: true // Allow credentials if you need to send cookies or authentication headers
 }));
 
 // Define API routes
