@@ -45,6 +45,11 @@ app.use(cors({
   credentials: true // Allow credentials if you need to send cookies or authentication headers
 }));
 
+app.use(cors({
+  origin: ['https://kupto-admin.com', 'http://localhost:3000'], // Add other origins as needed
+  credentials: true // Allow credentials if you need to send cookies or authentication headers
+}));
+
 // Define API routes
 app.use('/api/user', authRouter);
 app.use('/api/product', productRouter);
