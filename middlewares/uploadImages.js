@@ -1,15 +1,7 @@
-const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs-extra');
-
-// Cloudinary configuration
-cloudinary.config({
-  cloud_name: process.env.CLOUD_NAME,
-  api_key: process.env.API_KEY,
-  api_secret: process.env.API_SECRET,
-});
 
 // Multer setup for temporary local storage
 const multerStorage = multer.memoryStorage(); // Store file in memory buffer
@@ -64,3 +56,5 @@ const productImgResize = async (req, res, next) => {
 };
 
 module.exports = { uploadPhoto, productImgResize };
+
+
