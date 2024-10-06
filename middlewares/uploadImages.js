@@ -1,6 +1,7 @@
 const multer = require('multer');
 const sharp = require('sharp');
 const cloudinary = require('cloudinary').v2;
+const streamifier = require('streamifier');
 
 // Configure Cloudinary with environment variables
 cloudinary.config({
@@ -31,44 +32,43 @@ const uploadPhoto = multer({
 // Resize and upload images to Cloudinary
 const productImgResize = async (req, res, next) => {
   try {
-    if (!req.files || req.files.length === 0) return next();
+    if (!req.files || req.files.length === 0) {
+      console.warn('No files received.');
+      return next();
+    }
 
     const uploadPromises = req.files.map((file) => {
       return new Promise((resolve, reject) => {
-        // Resize image
+        console.log('Processing file:', file.originalname);
+        
         sharp(file.buffer)
           .resize(300, 300)
           .toFormat('jpeg')
           .jpeg({ quality: 90 })
           .toBuffer()
           .then((resizedImageBuffer) => {
-            // Upload to Cloudinary
-            const stream = cloudinary.uploader.upload_stream(
-              {
-                resource_type: 'image',
-                public_id: file.originalname.split('.')[0],
-                overwrite: true,
-                folder: 'documents',
-              },
-              (error, result) => {
-                if (error) {
-                  console.error('Cloudinary upload error:', error);
-                  return reject(error);
-                }
-                if (!result) {
-                  const noResultError = new Error('Cloudinary upload returned undefined result');
-                  console.error(noResultError);
-                  return reject(noResultError);
-                }
-                resolve({
-                  url: result.secure_url,
-                  public_id: result.public_id,
-                });
-              }
-            );
+            const stream = streamifier.createReadStream(resizedImageBuffer); // Create a stream from the buffer
 
-            // Pipe the resized image buffer to Cloudinary
-            stream.end(resizedImageBuffer);
+            stream.pipe(
+              cloudinary.uploader.upload_stream(
+                {
+                  resource_type: 'image',
+                  public_id: file.originalname.split('.')[0],
+                  overwrite: true,
+                  folder: 'documents',
+                },
+                (error, result) => {
+                  if (error) {
+                    console.error('Cloudinary upload error:', error);
+                    return reject(error);
+                  }
+                  resolve({
+                    url: result.secure_url,
+                    public_id: result.public_id,
+                  });
+                }
+              )
+            );
           })
           .catch((error) => {
             console.error('Error processing image with Sharp:', error);
@@ -77,12 +77,12 @@ const productImgResize = async (req, res, next) => {
       });
     });
 
-    // Wait for all uploads to finish
     req.uploadedFiles = await Promise.all(uploadPromises);
+    console.log('Upload successful:', req.uploadedFiles);
     next();
   } catch (error) {
     console.error('Error processing and uploading images:', error);
-    next(error); // Pass the error to the error handling middleware
+    next(error);
   }
 };
 
