@@ -33,26 +33,48 @@ const productImgResize = async (req, res, next) => {
   try {
     if (!req.files || req.files.length === 0) return next();
 
-    const uploadPromises = req.files.map(async (file) => {
-      // Resize image
-      const resizedImageBuffer = await sharp(file.buffer)
-        .resize(300, 300)
-        .toFormat('jpeg')
-        .jpeg({ quality: 90 })
-        .toBuffer();
+    const uploadPromises = req.files.map((file) => {
+      return new Promise((resolve, reject) => {
+        // Resize image
+        sharp(file.buffer)
+          .resize(300, 300)
+          .toFormat('jpeg')
+          .jpeg({ quality: 90 })
+          .toBuffer()
+          .then((resizedImageBuffer) => {
+            // Upload to Cloudinary
+            const stream = cloudinary.uploader.upload_stream(
+              {
+                resource_type: 'image',
+                public_id: file.originalname.split('.')[0],
+                overwrite: true,
+                folder: 'documents',
+              },
+              (error, result) => {
+                if (error) {
+                  console.error('Cloudinary upload error:', error);
+                  return reject(error);
+                }
+                if (!result) {
+                  const noResultError = new Error('Cloudinary upload returned undefined result');
+                  console.error(noResultError);
+                  return reject(noResultError);
+                }
+                resolve({
+                  url: result.secure_url,
+                  public_id: result.public_id,
+                });
+              }
+            );
 
-      // Upload to Cloudinary
-      const result = await cloudinary.uploader.upload(resizedImageBuffer, {
-        resource_type: 'image',
-        public_id: file.originalname.split('.')[0], // Customize public ID as needed
-        overwrite: true,
-        folder: 'documents', // Corrected to 'folder'
+            // Pipe the resized image buffer to Cloudinary
+            stream.end(resizedImageBuffer);
+          })
+          .catch((error) => {
+            console.error('Error processing image with Sharp:', error);
+            reject(error);
+          });
       });
-
-      return {
-        url: result.secure_url,
-        public_id: result.public_id,
-      };
     });
 
     // Wait for all uploads to finish
