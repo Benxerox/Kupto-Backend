@@ -8,6 +8,7 @@ const uploadImages = asyncHandler(async (req, res) => {
   const uploader = (file) => cloudinaryUploadImg(file.path);
   const urls = [];
   const files = req.files;
+  console.log('Files:', files);
 
   try {
     for (const file of files) {
