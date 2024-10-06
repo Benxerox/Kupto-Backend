@@ -1,24 +1,16 @@
 const multer = require('multer');
 const sharp = require('sharp');
-const path = require('path');
-const fs = require('fs-extra');
+const cloudinary = require('cloudinary').v2;
 
-// Ensure directories exist
-const images = path.join(__dirname, '../public/images');
-const products = path.join(images, 'products');
-fs.ensureDirSync(images);
-fs.ensureDirSync(products);
+// Configure Cloudinary with environment variables
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.API_KEY,
+  api_secret: process.env.SECRET_KEY,
+});
 
 // Multer storage configuration
-const multerStorage = multer.diskStorage({
-  destination: function(req, file, cb) {
-    cb(null, images);
-  },
-  filename: function(req, file, cb){
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + ".jpeg"); 
-  },
-});
+const multerStorage = multer.memoryStorage();
 
 // Multer file filter
 const multerFilter = (req, file, cb) => {
@@ -36,37 +28,40 @@ const uploadPhoto = multer({
   limits: { fileSize: 2 * 1024 * 1024 }, // 2 MB size limit
 });
 
+// Resize and upload images to Cloudinary
 const productImgResize = async (req, res, next) => {
   try {
     if (!req.files || req.files.length === 0) return next();
 
-    await Promise.all(req.files.map(async (file) => {
-      const newFilePath = path.join(products, file.filename);
-
-      // Resize image and save it to the new file path
-      await sharp(file.path)
+    const uploadPromises = req.files.map(async (file) => {
+      // Resize image
+      const resizedImageBuffer = await sharp(file.buffer)
         .resize(300, 300)
         .toFormat('jpeg')
         .jpeg({ quality: 90 })
-        .toFile(newFilePath);
-      
-      // Delete the original file asynchronously
-      fs.unlink(file.path, (unlinkErr) => {
-        if (unlinkErr) {
-          console.error(`Error deleting file ${file.path}:`, unlinkErr);
-        } else {
-          console.log(`Successfully deleted file ${file.path}`);
-        }
-      });
-    }));
+        .toBuffer();
 
+      // Upload to Cloudinary
+      const result = await cloudinary.uploader.upload(resizedImageBuffer, {
+        resource_type: 'image',
+        public_id: file.originalname.split('.')[0], // Customize public ID as needed
+        overwrite: true,
+        folder: 'documents', // Corrected to 'folder'
+      });
+
+      return {
+        url: result.secure_url,
+        public_id: result.public_id,
+      };
+    });
+
+    // Wait for all uploads to finish
+    req.uploadedFiles = await Promise.all(uploadPromises);
     next();
   } catch (error) {
-    console.error('Error resizing images:', error);
+    console.error('Error processing and uploading images:', error);
     next(error); // Pass the error to the error handling middleware
   }
 };
 
 module.exports = { uploadPhoto, productImgResize };
-
-
