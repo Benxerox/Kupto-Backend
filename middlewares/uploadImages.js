@@ -55,7 +55,7 @@ const productImgResize = async (req, res, next) => {
                   resource_type: 'image',
                   public_id: file.originalname.split('.')[0],
                   overwrite: true,
-                  folders: 'documents',
+                  folder: 'documents',
                 },
                 (error, result) => {
                   if (error) {
