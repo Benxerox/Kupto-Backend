@@ -16,6 +16,7 @@ router.post(
 );
 
 
+
 router.delete('/delete-img/:id', authMiddleware, isAdmin, deleteImages);
 
 

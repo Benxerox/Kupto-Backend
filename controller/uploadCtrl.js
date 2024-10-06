@@ -5,26 +5,26 @@ const asyncHandler = require('express-async-handler');
 
 // Upload images
 const uploadImages = asyncHandler(async (req, res) => {
-  const uploader = (filePath) => cloudinaryUploadImg(filePath);
+  const uploader = (file) => cloudinaryUploadImg(file.path);
   const urls = [];
   const files = req.files;
 
   try {
     for (const file of files) {
-      const filePath = file.path;
-      const { url, public_id } = await uploader(filePath);
+      const { url, public_id } = await uploader(file); // Upload directly to Cloudinary
       console.log({ url, public_id });
       urls.push({ url, public_id });
 
-      // Delete the file after upload
-      fs.unlink(filePath, (err) => {
+      // Delete local file if saved locally (optional)
+      fs.unlink(file.path, (err) => {
         if (err) {
-          console.error('Failed to delete file:', filePath, err);
+          console.error('Failed to delete local file:', file.path, err);
         } else {
-          console.log('File deleted:', filePath);
+          console.log('Local file deleted:', file.path);
         }
       });
     }
+
     res.json(urls);
   } catch (error) {
     console.error('Error during image upload:', error);
