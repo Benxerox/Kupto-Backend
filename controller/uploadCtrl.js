@@ -103,13 +103,12 @@ const uploadImages = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: 'No files uploaded' });
   }
 
-  const uploader = (file) => cloudinaryUploadImg(file.path);
+  const uploader = (file) => cloudinaryUploadImg(file.buffer); // Use buffer instead of path
   const urls = [];
 
   try {
     const uploadPromises = files.map(async (file) => {
       const { url, public_id } = await uploader(file); // Upload directly to Cloudinary
-      await fs.promises.unlink(file.path); // Cleanup local file after upload
       return { url, public_id };
     });
 
@@ -117,7 +116,10 @@ const uploadImages = asyncHandler(async (req, res) => {
     res.json(uploadedImages);
   } catch (error) {
     console.error('Error during image upload:', error);
-    res.status(500).json({ message: 'Failed to upload images', error: error.message });
+    res.status(500).json({
+      message: 'Failed to upload images',
+      error: error.message || 'Unknown error occurred',
+    });
   }
 });
 
@@ -166,7 +168,11 @@ const deleteFile = asyncHandler(async (req, res) => {
   const { id } = req.params;
   try {
     const result = await cloudinaryDeleteFile(id);
-    res.json({ message: 'File deleted successfully', result });
+    if (result.result === 'ok') {
+      res.json({ message: 'File deleted successfully' });
+    } else {
+      res.status(404).json({ message: 'File not found or could not be deleted' });
+    }
   } catch (error) {
     console.error('Error deleting file:', error);
     res.status(500).json({ message: 'Failed to delete file', error: error.message });
