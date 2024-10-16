@@ -1,5 +1,6 @@
 const Size = require('../models/sizeModel');
 const asyncHandler = require('express-async-handler');
+const slugify = require('slugify');
 const validateMongoDbId = require('../utils/validateMongodbid');
 
 
@@ -7,18 +8,26 @@ const validateMongoDbId = require('../utils/validateMongodbid');
 
 const createSize = asyncHandler(async (req, res) => {
   try {
-    console.log('Received Request Body:', req.body); // Check the received request body
+    console.log('Received Request Body:', req.body); // Log the received request body
     
     // Check if title and price are included
-    if (!req.body.title || !req.body.price) {
+    if (!req.body.title || req.body.price === undefined) {
       return res.status(400).json({ message: 'Title and price are required.' });
     }
 
-    if (req.body.title) {
-      req.body.slug = slugify(req.body.title);
-    }
+    // Create slug from title
+    req.body.slug = slugify(req.body.title);
 
+    // Log the size object before saving
+    console.log('Size to be created:', req.body);
+
+    // Create a new Size document
     const newSize = await Size.create(req.body);
+
+    // Log the created size document
+    console.log('Created Size:', newSize);
+
+    // Send the created size back as response
     res.status(201).json({ newSize });
   } catch (error) {
     console.error('Error creating size:', error);
