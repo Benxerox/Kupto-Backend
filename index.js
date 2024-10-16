@@ -1,4 +1,4 @@
-const bodyParser = require('body-parser');
+
 const express = require('express');
 const dbConnect = require('./config/dbconnect');
 const app = express();
@@ -34,9 +34,9 @@ dbConnect();
 
 // Apply middlewares
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: false }));
+
 app.use(cookieParser());
 
 // CORS settings

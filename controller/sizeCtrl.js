@@ -3,12 +3,26 @@ const asyncHandler = require('express-async-handler');
 const validateMongoDbId = require('../utils/validateMongodbid');
 
 
-const createSize = asyncHandler(async(req, res)=>{
+
+
+const createSize = asyncHandler(async (req, res) => {
   try {
+    console.log('Received Request Body:', req.body); // Check the received request body
+    
+    // Check if title and price are included
+    if (!req.body.title || !req.body.price) {
+      return res.status(400).json({ message: 'Title and price are required.' });
+    }
+
+    if (req.body.title) {
+      req.body.slug = slugify(req.body.title);
+    }
+
     const newSize = await Size.create(req.body);
-    res.json(newSize);
+    res.status(201).json({ newSize });
   } catch (error) {
-    throw new Error (error);
+    console.error('Error creating size:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
