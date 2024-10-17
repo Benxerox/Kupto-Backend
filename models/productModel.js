@@ -50,17 +50,12 @@ var productSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Color'
     }],
-    size: [{
-      size: {
+    
+      size: [{
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Size',
-        required: true,
-      },
-      price: {
-        type: Number,
-        required: true, // Price per size
-      },
-    }],
+        ref: 'Size', // Refers to the Category model
+      }],
+    
     tags: String,
     ratings: [
       {
