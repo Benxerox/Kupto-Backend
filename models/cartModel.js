@@ -24,7 +24,8 @@ var cartSchema = new mongoose.Schema({
  },
  
  size: {
-  type: String
+  type: mongoose.Schema.Types.ObjectId, // Use ObjectId here
+  ref: 'Size' // Reference the Size model
 },
 uploadedFiles: [{
   fileName: String,
