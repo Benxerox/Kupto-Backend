@@ -435,6 +435,7 @@ const getUserCart = asyncHandler(async (req, res) => {
 const removeProductFromCart = asyncHandler(async(req, res)=>{
   const {_id} = req.user;
   const {cartItemId} = req.params;
+  
   validateMongoDbId(_id);
   try {
     const deleteProductFromCart = await Cart.deleteOne({userId: _id, _id: cartItemId})
