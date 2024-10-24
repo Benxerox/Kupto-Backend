@@ -264,32 +264,7 @@ const updatePassword = asyncHandler(async(req, res)=> {
     res.json(user);
   }
 });
-/*
-const forgotPasswordToken = asyncHandler(async (req, res) => {
-  const { email } = req.body;
-  const user = await User.findOne({ email });
 
-  if (!user) throw new Error('User not found with this email')
-
-  try {
-    const token = await User.createPasswordResetToken();
-    await user.save();
-
-    const resetURL = `Hi, please follow this link to reset your password. This link is valid for 10 minutes from now: <a href='http://localhost:3000/reset-password/${token}'>Click Here</a>`;
-    const data = {
-      to: email,
-      text: 'Hey User',
-      subject: 'Forgot Password Link',
-      htm: resetURL,
-    };
-
-    sendEmail(data);
-    res.json({ message: 'Password reset link sent', token });
-  } catch (error) {
-    console.error('Error sending email:', error);
-    res.status(500).json({ message: 'Failed to send email', error: error.message });
-  }
-});*/
 const forgotPasswordToken = asyncHandler(async (req, res) => {
   const { email } = req.body;
   const user = await User.findOne({ email });
@@ -367,62 +342,22 @@ const userCart = asyncHandler(async (req, res) => {
     throw new Error(error);
   }
 });
-/*
-const userCart = asyncHandler(async (req, res) => {
-  const {productId, color, quantity, size, price} = req.body;
-  const {_id} = req.user;
-  validateMongoDbId(_id);
-  try {
-    let newCart = await new Cart({
-      userId:_id,
-      productId,
-      color,
-      size,
-      price,
-      quantity
-    }).save();
-    res.json(newCart);
-  } catch (error) {
-    throw new Error(error);
-  }
-});*/
-/*
+
+
 const getUserCart = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   validateMongoDbId(_id);
 
   try {
-    console.log('User ID:', _id);
-    const cart = await Cart.find({ userId: _id })
-      .populate('productId')
-      .populate('color')
-      .populate('size');
-
-    console.log('Fetched cart:', cart); // Log the fetched cart data
-    res.json(cart);
-  } catch (error) {
-    console.error('Error while fetching cart:', error.message); // Log error message
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-*/
-const getUserCart = asyncHandler(async (req, res) => {
-  const { _id } = req.user;
-  validateMongoDbId(_id);
-
-  try {
-    
-
     const cart = await Cart.find({ userId: _id })
       .populate('productId') // Populate product details
       .populate('color')     // Populate color details
       .populate('size');     // Populate size details
 
-    
-
     // Check if the cart is empty
     if (cart.length === 0) {
-      return res.status(404).json({ message: 'Cart is empty' });
+      // Return an empty array with a 200 status
+      return res.status(200).json([]);
     }
 
     res.json(cart);
