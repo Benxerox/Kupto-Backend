@@ -57,14 +57,23 @@ const deletePoster = asyncHandler(async (req, res) => {
 
 
 
-const getaPoster = asyncHandler(async(req, res)=>{
-  const {id} = req.params;
+const getaPoster = asyncHandler(async (req, res) => {
+  const { id } = req.params;
   validateMongoDbId(id);
+  
   try {
     const findPoster = await Poster.findById(id);
-    res.json(findPoster);
+    
+    // Check if the poster was found
+    if (!findPoster) {
+      // Return a 404 status if not found
+      return res.status(404).json({ message: "Poster not found" });
+    }
+
+    res.status(200).json(findPoster);
   } catch (error) {
-    throw new Error(error)
+    console.error("Error fetching poster:", error); // Log the error for debugging
+    res.status(500).json({ message: "Server error", error: error.message }); // Return a server error response
   }
 });
 
@@ -76,18 +85,17 @@ const getaPoster = asyncHandler(async(req, res)=>{
 
 const getAllPoster = asyncHandler(async (req, res) => {
   try {
-    //filtering
+    // Filtering
     const queryObj = { ...req.query };
     const excludeFields = ['page', 'sort', 'limit', 'fields'];
     excludeFields.forEach(el => delete queryObj[el]);
-    
+
     let queryStr = JSON.stringify(queryObj);
     queryStr = queryStr.replace(/\b(gte|gt|lte|lt)\b/g, match => `$${match}`);
-    
+
     let query = Poster.find(JSON.parse(queryStr));
 
     // Sorting
-   
     if (req.query.sort) {
       const sortBy = req.query.sort.split(',').join(' ');
       query = query.sort(sortBy);
@@ -103,23 +111,28 @@ const getAllPoster = asyncHandler(async (req, res) => {
       query = query.select('-__v');
     }
 
-    //Pagination
+    // Pagination
+    const page = parseInt(req.query.page, 10) || 1; // Ensure it's a number
+    const limit = parseInt(req.query.limit, 10) || 10; // Ensure it's a number
+    const skip = (page - 1) * limit;
 
-    const page = req.query.page;
-    const limit = req.query.limit;
-    const skip = (page-1)* limit;
-    query = query.skip(skip).limit(limit);
-    if(req.query.page) {
-      const posterCount = await Poster.countDocuments();
-      if (skip>=posterCount) throw new Error('This Page does not exist');
+    // Validate the pagination values
+    if (skip < 0) {
+      return res.status(400).json({ success: false, message: 'Invalid page number' });
     }
-    console.log(page, limit, skip)
 
+    const posterCount = await Poster.countDocuments();
+    if (skip >= posterCount && page > 1) {
+      return res.status(404).json({ success: false, message: 'This page does not exist' });
+    }
 
-    const poster = await query;
-    res.json(poster);
+    query = query.skip(skip).limit(limit);
+    const posters = await query;
+
+    res.status(200).json({ success: true, posters, total: posterCount, currentPage: page });
   } catch (error) {
-    throw new Error(error);
+    console.error("Error fetching posters:", error); // Log the error for debugging
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 

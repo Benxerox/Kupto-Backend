@@ -55,14 +55,22 @@ const deletePost = asyncHandler(async (req, res) => {
 });
 
 // Get a specific post
-const getaPost = asyncHandler(async(req, res) => {
+const getaPost = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
+
   try {
     const findPost = await OtherPost.findById(id);
-    res.json({ success: true, findPost });
+
+    // Check if the post was found
+    if (!findPost) {
+      return res.status(404).json({ success: false, message: "Post not found" });
+    }
+
+    res.status(200).json({ success: true, post: findPost }); // Changed to "post" for clarity
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Error fetching post:", error); // Log the error for debugging
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 });
 
@@ -73,10 +81,10 @@ const getAllPost = asyncHandler(async (req, res) => {
     const queryObj = { ...req.query };
     const excludeFields = ['page', 'sort', 'limit', 'fields'];
     excludeFields.forEach(el => delete queryObj[el]);
-    
+
     let queryStr = JSON.stringify(queryObj);
     queryStr = queryStr.replace(/\b(gte|gt|lte|lt)\b/g, match => `$${match}`);
-    
+
     let query = OtherPost.find(JSON.parse(queryStr));
 
     // Sorting
@@ -96,16 +104,21 @@ const getAllPost = asyncHandler(async (req, res) => {
     }
 
     // Pagination
-    const page = req.query.page || 1;
-    const limit = req.query.limit || 10;
+    const page = parseInt(req.query.page, 10) || 1; // Ensure it's a number
+    const limit = parseInt(req.query.limit, 10) || 10; // Ensure it's a number
     const skip = (page - 1) * limit;
-    query = query.skip(skip).limit(limit);
-    const postCount = await OtherPost.countDocuments();
-    if (skip >= postCount && page > 1) throw new Error('This Page does not exist');
 
+    const postCount = await OtherPost.countDocuments();
+    if (skip >= postCount && page > 1) {
+      return res.status(404).json({ success: false, message: 'This page does not exist' });
+    }
+
+    query = query.skip(skip).limit(limit);
     const posts = await query;
-    res.json({ success: true, posts });
+
+    res.status(200).json({ success: true, posts, totalPosts: postCount, currentPage: page });
   } catch (error) {
+    console.error("Error fetching posts:", error); // Log the error for debugging
     res.status(500).json({ success: false, message: error.message });
   }
 });
