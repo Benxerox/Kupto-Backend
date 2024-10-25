@@ -70,7 +70,11 @@ const orderSchema = new mongoose.Schema({
       price: {
         type: Number,
         required: true,
-      }
+      },
+      instruction: {
+        type: String,
+        default: null,
+      },
     }
   ],
   paidAt: {
