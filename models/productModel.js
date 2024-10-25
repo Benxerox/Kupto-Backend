@@ -23,6 +23,14 @@ var productSchema = new mongoose.Schema({
         type:Number,
         required:true,
     },
+    discountedPrice: { // New field for the second price
+      type: Number,
+      required: true,
+  },
+  design:{
+      type:Number,
+      required:true,
+  },
     category: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Category', // Refers to the Category model
@@ -70,6 +78,11 @@ var productSchema = new mongoose.Schema({
       default: 0,
     }
 }, {timestamps: true});
+
+// Method to get the effective price based on order quantity
+productSchema.methods.getEffectivePrice = function(orderQuantity) {
+  return orderQuantity > 500 ? this.discountedPrice : this.price;
+};
 
 //Export the model
 module.exports = mongoose.model('Product', productSchema);

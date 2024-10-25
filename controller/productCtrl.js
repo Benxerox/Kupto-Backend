@@ -44,14 +44,20 @@ const updateProduct = asyncHandler(async (req, res) => {
 });
 
 
+
 const deleteProduct = asyncHandler(async (req, res) => {
   const id = req.params.id; 
   validateMongoDbId(id);
   try {
-    const deleteProduct = await Product.findOneAndDelete({ _id: id });
-    res.json(deleteProduct);
+    const deletedProduct = await Product.findByIdAndDelete(id);
+    
+    if (!deletedProduct) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    res.json({ message: 'Product deleted successfully', data: deletedProduct });
   } catch (error) {
-    throw new Error(error);
+    console.error('Error deleting product:', error);
+    res.status(500).json({ error: 'Internal Server Error', details: error.message });
   }
 });
 
