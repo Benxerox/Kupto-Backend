@@ -25,11 +25,11 @@ var productSchema = new mongoose.Schema({
     },
     discountedPrice: { // New field for the second price
       type: Number,
-      required: true,
+      default: null,
   },
   design:{
       type:Number,
-      required:true,
+      default: null,
   },
     category: [{
       type: mongoose.Schema.Types.ObjectId,
