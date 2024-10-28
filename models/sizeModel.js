@@ -10,7 +10,11 @@ const sizeSchema = new mongoose.Schema({
   },
   price: {
     type: Number,
-    required: true,
+    default: 0,
+  },
+  printingPrice: {
+    type: Number,
+    default: 0,
   },
 }, {
   timestamps: true,
