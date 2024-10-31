@@ -41,7 +41,8 @@ const cloudinaryDeleteImg = (publicId, resourceType = 'image') => {
 // Upload raw files (documents, PDFs, etc.) to Cloudinary
 const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
   return new Promise((resolve, reject) => {
-    const publicId = fileName.split('.').slice(0, -1).join('.'); // Remove extension
+    const publicId = `documents/${fileName.split('.').slice(0, -1).join('.')}`; // Remove extension
+    
 
     cloudinary.uploader.upload(
       filePath,
