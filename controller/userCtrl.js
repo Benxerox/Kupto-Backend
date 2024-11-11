@@ -31,76 +31,113 @@ const createUser = asyncHandler(async (req, res) => {
 });
 
   
-const loginUserCtrl = asyncHandler(async(req, res)=>{
-  const {email,password} = req.body;
-  //check if user exists or not
-  const findUser = await User.findOne({email});
-  if (findUser && await findUser.isPasswordMatched(password)) {
-    const refreshToken = await generateRefreshToken(findUser?._id);
-    const updateuser = await User.findByIdAndUpdate(findUser.id, {
-      refreshToken:refreshToken
-    }, 
-    { new: true });
-    res.cookie('refreshToken',refreshToken, {
-      httpOnly: true,
-      maxAge: 72 * 60 * 60 * 1000,
-    });
-    res.json({
-      id: findUser?._id,
-      firstname: findUser?.firstname,
-      lastname: findUser.lastname,
-      email: findUser?.email,
-      mobile: findUser?.mobile,
-      token: generateToken(findUser?._id)
-    });
-  } else {
+const loginUserCtrl = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
+
+  // Check if the user exists
+  const findUser = await User.findOne({ email });
+  if (!findUser) {
     throw new Error('Invalid Credentials');
   }
+
+  // Check if password matches
+  const passwordMatch = await findUser.isPasswordMatched(password);
+  if (!passwordMatch) {
+    throw new Error('Invalid Credentials');
+  }
+
+  // Generate refresh token and update the user
+  const refreshToken = generateRefreshToken(findUser._id);
+  findUser.refreshToken = refreshToken;  // Directly update the refreshToken in the user model
+  await findUser.save();
+
+  // Set refresh token in cookie
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',  // Use secure cookies in production
+    maxAge: 72 * 60 * 60 * 1000,  // 72 hours
+  });
+
+  // Send response with user data and access token
+  res.json({
+    id: findUser._id,
+    firstname: findUser.firstname,
+    lastname: findUser.lastname,
+    email: findUser.email,
+    mobile: findUser.mobile,
+    token: generateToken(findUser._id),  // Access token
+  });
 });
 
 //admin login
-const loginAdmin = asyncHandler(async(req, res)=>{
-  const {email,password} = req.body;
-  //check if user exists or not
-  const findAdmin = await User.findOne({email});
-  if (findAdmin.role !== 'admin') throw new Error('Not Authorised');
-  if (findAdmin && (await findAdmin.isPasswordMatched(password))) {
-    const refreshToken = await generateRefreshToken(findAdmin?._id);
-    const updateuser = await User.findByIdAndUpdate(findAdmin.id, {
-      refreshToken:refreshToken
-    }, 
-    { new: true });
-    res.cookie('refreshToken',refreshToken, {
-      httpOnly: true,
-      maxAge: 72 * 60 * 60 * 1000,
-    });
-    res.json({
-      id: findAdmin?._id,
-      firstname: findAdmin?.firstname,
-      lastname: findAdmin.lastname,
-      email: findAdmin?.email,
-      mobile: findAdmin?.mobile,
-      token: generateToken(findAdmin?._id)
-    });
-  } else {
+const loginAdmin = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
+
+  // Check if the admin exists
+  const findAdmin = await User.findOne({ email });
+  if (!findAdmin || findAdmin.role !== 'admin') {
+    throw new Error('Not Authorized');
+  }
+
+  // Check if password matches
+  const passwordMatch = await findAdmin.isPasswordMatched(password);
+  if (!passwordMatch) {
     throw new Error('Invalid Credentials');
   }
+
+  // Generate refresh token and update the admin user
+  const refreshToken = generateRefreshToken(findAdmin._id);
+  findAdmin.refreshToken = refreshToken;  // Directly update the refreshToken in the admin model
+  await findAdmin.save();
+
+  // Set refresh token in cookie
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',  // Use secure cookies in production
+    maxAge: 72 * 60 * 60 * 1000,  // 72 hours
+  });
+
+  // Send response with admin data and access token
+  res.json({
+    id: findAdmin._id,
+    firstname: findAdmin.firstname,
+    lastname: findAdmin.lastname,
+    email: findAdmin.email,
+    mobile: findAdmin.mobile,
+    token: generateToken(findAdmin._id),  // Access token
+  });
 });
 
 //handle refresh token
-const handleRefreshToken = asyncHandler(async(req, res)=>{
+const handleRefreshToken = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
-  if(!cookie?.refreshToken) throw new Error('No Refresh Token in Cookies');
+  if (!cookie?.refreshToken) {
+    throw new Error('No Refresh Token in Cookies');
+  }
+
   const refreshToken = cookie.refreshToken;
+  // Find the user by the refreshToken
   const user = await User.findOne({ refreshToken });
-  if(!user) throw new Error('No Refresh Token Present in db or not matched');
-  jwt.verify(refreshToken, process.env.JWT_SECRET, (err, decoded)=>{
-    if (err || user.id !== decoded.id) {
-      throw new Error('There is something wrong with refresh token')
+  if (!user) {
+    throw new Error('No Refresh Token Present in DB or not matched');
+  }
+
+  try {
+    // Verify the refresh token
+    const decoded = await jwt.verify(refreshToken, process.env.JWT_SECRET); // Use async/await with jwt.verify
+    if (user.id !== decoded.id) {
+      throw new Error('There is something wrong with the refresh token');
     }
-    const accessToken = generateToken(user?._id);
-    res.json({accessToken});
-  });
+
+    // Generate new access token
+    const accessToken = generateToken(user._id);
+
+    // Send the new access token as response
+    res.json({ accessToken });
+  } catch (err) {
+    // Handle any error during JWT verification
+    throw new Error('Invalid or expired refresh token');
+  }
 });
 
 //Logout functionality
@@ -109,28 +146,24 @@ const logout = asyncHandler(async (req, res) => {
   if (!cookie?.refreshToken) throw new Error('No Refresh Token in Cookies');
 
   const refreshToken = cookie.refreshToken;
-
-  // Find the user by refreshToken
   const user = await User.findOne({ refreshToken });
 
   if (!user) {
-    // If user not found, clear the refreshToken cookie and respond with 204
+   
     res.clearCookie('refreshToken', {
       httpOnly: true,
       secure: true
     });
-    return res.sendStatus(204); // No Content
+    return res.sendStatus(204);
   }
 
-  // Update user to clear refreshToken
   await User.findOneAndUpdate({ refreshToken }, { refreshToken: '' });
 
-  // Clear refreshToken cookie and respond with 204
   res.clearCookie('refreshToken', {
     httpOnly: true,
     secure: true
   });
-  res.sendStatus(204); // No Content
+  res.sendStatus(204);
 });
 
 // Update a user
@@ -407,21 +440,7 @@ const emptyCart = asyncHandler(async(req, res)=>{
 
 
 
-/*const createOrder = asyncHandler(async(req, res)=>{
-  const {shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo} = req.body;
-  const {_id} = req.user;
-  try {
-    const order = await Order.create({
-      shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo, user:_id
-    })
-    res.json({
-      order,
-      success: true
-    })
-  } catch (error) {
-    throw new Error(error);
-  }
-})*/
+
 
 const createOrder = asyncHandler(async (req, res) => {
   const { shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo } = req.body;
@@ -455,14 +474,11 @@ const createOrder = asyncHandler(async (req, res) => {
       paymentInfo,
       user: _id,
     });
-
-    // Respond with the created order and success flag
     res.json({
       order,
       success: true,
     });
   } catch (error) {
-    // Log the error and send a 500 status code
     console.error('Error creating order:', error.message);
     res.status(500).json({ message: error.message });
   }
