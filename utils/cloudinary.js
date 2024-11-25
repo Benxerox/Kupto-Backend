@@ -42,15 +42,14 @@ const cloudinaryDeleteImg = (publicId, resourceType = 'image') => {
 const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
   return new Promise((resolve, reject) => {
     const publicId = `documents/${fileName.split('.').slice(0, -1).join('.')}`; // Remove extension
-    
 
     cloudinary.uploader.upload(
       filePath,
       {
-        resource_type: resourceType,
+        resource_type: resourceType,  // 'raw' for documents
         public_id: publicId,
-        overwrite: true, // Ensure it replaces if already exists
-        folder: 'documents', // Specify the folder
+        overwrite: true,
+        folder: 'documents',
       },
       (error, result) => {
         if (error) {
@@ -66,7 +65,6 @@ const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
   });
 };
 
-// Delete raw files from Cloudinary
 const cloudinaryDeleteFile = (publicId, resourceType = 'raw') => {
   return new Promise((resolve, reject) => {
     cloudinary.uploader.destroy(publicId, { resource_type: resourceType }, (error, result) => {
@@ -74,7 +72,13 @@ const cloudinaryDeleteFile = (publicId, resourceType = 'raw') => {
         console.error('Cloudinary delete error:', error);
         return reject(error);
       }
-      resolve(result);
+      if (result.result === 'ok') {
+        console.log(`File ${publicId} deleted successfully`);
+        resolve(result);
+      } else {
+        console.error(`File ${publicId} could not be deleted`);
+        reject(new Error('File not found or could not be deleted'));
+      }
     });
   });
 };
