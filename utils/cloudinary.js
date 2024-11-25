@@ -47,16 +47,16 @@ const cloudinaryDeleteImg = (publicId, resourceType = 'image') => {
 // Upload raw files (documents, PDFs, etc.) to Cloudinary
 const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
   return new Promise((resolve, reject) => {
-    // Generate a random public_id
-    const publicId = generateRandomId();
+    // Generate a random alphanumeric string for public_id
+    const randomPublicId = Math.random().toString(36).substring(2, 15);  // Generate a random string (e.g., dj0m2lis6i)
 
     cloudinary.uploader.upload(
       filePath,
       {
         resource_type: resourceType,   // 'raw' for documents
-        public_id: publicId,           // Use the random public_id
+        public_id: randomPublicId,     // Use the random alphanumeric string as public_id
         overwrite: true,                // Ensure that if the file exists, it gets replaced
-        folder: 'folders/documents',    // Specify the Cloudinary folder path (files will go here)
+        folder: 'folders/documents',    // Specify the Cloudinary folder path
       },
       (error, result) => {
         if (error) {
@@ -65,7 +65,7 @@ const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
         }
         resolve({
           url: result.secure_url,       // URL of the uploaded file
-          public_id: result.public_id   // Public ID of the uploaded file (random, no folder in the ID)
+          public_id: result.public_id   // Public ID of the uploaded file (without folder structure)
         });
       }
     );
