@@ -76,16 +76,20 @@ const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
 
 const cloudinaryDeleteFile = (publicId, resourceType = 'raw') => {
   return new Promise((resolve, reject) => {
+    console.log(`Attempting to delete file with public_id: ${publicId}`);
+
     cloudinary.uploader.destroy(publicId, { resource_type: resourceType }, (error, result) => {
       if (error) {
         console.error('Cloudinary delete error:', error);
         return reject(error);
       }
+
+      // Check if the result indicates a successful deletion
       if (result.result === 'ok') {
         console.log(`File ${publicId} deleted successfully`);
         resolve(result);
       } else {
-        console.error(`File ${publicId} could not be deleted`);
+        console.error(`File ${publicId} could not be deleted. Result:`, result);
         reject(new Error('File not found or could not be deleted'));
       }
     });

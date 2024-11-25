@@ -165,20 +165,22 @@ const uploadFiles = asyncHandler(async (req, res) => {
 
 // Delete file
 const deleteFile = asyncHandler(async (req, res) => {
-  const publicId = req.params.id;  // Capture only the public_id (e.g., '671b89829a9a0f7f1d35a87b')
+  const publicId = req.params.id;  // Capture public_id (e.g., '671b89829a9a0f7f1d35a87b')
   const resourceType = req.query.resource_type || 'raw';  // Default to 'raw' if not provided
 
   try {
-    // Call Cloudinary's delete function with the public_id
+    // Attempt to delete the file from Cloudinary
     const result = await cloudinaryDeleteFile(publicId, resourceType);
 
-    // Check if the deletion was successful
+    // Check if the result indicates successful deletion
     if (result.result === 'ok') {
       res.json({ message: 'File deleted successfully' });
     } else {
+      // If the file couldn't be deleted
       res.status(404).json({ message: 'File not found or could not be deleted' });
     }
   } catch (error) {
+    // Error handling if the deletion failed
     console.error('Error deleting file:', error);
     res.status(500).json({ message: 'Failed to delete file', error: error.message });
   }
