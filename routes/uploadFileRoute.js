@@ -8,8 +8,8 @@ const router = express.Router();
 router.post('/', uploadFile.array('files'), uploadFiles);
 
 // Route to handle file deletion
-router.delete('/delete/:id', deleteFile);
 
+router.delete('/delete/:id', deleteFile);
 module.exports = router;
 
 
