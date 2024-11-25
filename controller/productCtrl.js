@@ -25,23 +25,32 @@ const createProduct = asyncHandler(async(req, res)=> {
 const updateProduct = asyncHandler(async (req, res) => {
   const id = req.params.id; 
   validateMongoDbId(id);
+  
   try {
+    // Generate slug if title exists
     if (req.body.title) {
-      req.body.slug = slugify(req.body.title);
+      req.body.slug = slugify(req.body.title.trim());
     }
+
+    // Find and update the product
     const updateProduct = await Product.findByIdAndUpdate(id, req.body, {
       new: true,
-      runValidators: true // Ensures schema validation during update
+      runValidators: true, // Ensure schema validation during update
     });
+
+    // Check if the product was found and updated
     if (!updateProduct) {
-      return res.status(404).json({ message: 'Product not found' });
+      return res.status(404).json({ message: 'Product not found or no changes were made' });
     }
-    res.json(updateProduct);
+
+    // Return success response
+    res.json({ message: 'Product updated successfully', data: updateProduct });
   } catch (error) {
-    console.error('Error updating product:', error); // Detailed error logging
+    console.error(`Error updating product with ID ${id}:`, error);
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
   }
 });
+
 
 
 

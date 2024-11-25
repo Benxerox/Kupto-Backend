@@ -68,10 +68,9 @@ var productSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-// Method to get the effective price based on order quantity
+
 productSchema.methods.getEffectivePrice = function(orderQuantity) {
     return orderQuantity > 500 ? this.discountedPrice : this.price;
 };
 
-// Export the model
 module.exports = mongoose.model('Product', productSchema);
