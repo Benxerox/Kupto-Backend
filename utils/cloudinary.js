@@ -41,16 +41,16 @@ const cloudinaryDeleteImg = (publicId, resourceType = 'image') => {
 // Upload raw files (documents, PDFs, etc.) to Cloudinary
 const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
   return new Promise((resolve, reject) => {
-    // Specify the full publicId with folder structure
-    const publicId = `folders/documents/${fileName.split('.').slice(0, -1).join('.')}`;
+    // Correct the publicId to ensure it goes to the right folder
+    const publicId = `folders/documents/${fileName.split('.').slice(0, -1).join('.')}`;  // Only include folders/documents in the public ID
 
     cloudinary.uploader.upload(
       filePath,
       {
-        resource_type: resourceType,   // 'raw' for documents
-        public_id: publicId,           // Set the public_id correctly (with folder structure)
-        overwrite: true,                // Ensure that if the file exists, it gets replaced
-        folder: 'folders/documents',    // Specify the Cloudinary folder path
+        resource_type: resourceType,  // 'raw' for documents
+        public_id: publicId,         // Set the public_id correctly (no duplication of folders)
+        overwrite: true,              // Ensure that if the file exists, it gets replaced
+        folder: 'folders/documents',  // Specify the Cloudinary folder path
       },
       (error, result) => {
         if (error) {
@@ -58,8 +58,8 @@ const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
           return reject(error);
         }
         resolve({
-          url: result.secure_url,       // URL of the uploaded file
-          public_id: result.public_id   // Public ID of the uploaded file
+          url: result.secure_url,     // URL of the uploaded file
+          public_id: result.public_id // Public ID of the uploaded file
         });
       }
     );
