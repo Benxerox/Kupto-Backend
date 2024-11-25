@@ -48,7 +48,7 @@ const cloudinaryDeleteImg = (publicId, resourceType = 'image') => {
 const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
   return new Promise((resolve, reject) => {
     // Generate a random alphanumeric string for public_id
-    const randomPublicId = Math.random().toString(36).substring(2, 15);  // Generate a random string (e.g., dj0m2lis6i)
+    const randomPublicId = Math.random().toString(36).substring(2, 15);  // Generate a random string (e.g., iaqahdbi7f)
 
     cloudinary.uploader.upload(
       filePath,
@@ -63,9 +63,11 @@ const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
           console.error('Cloudinary upload error:', error);
           return reject(error);
         }
+        // Here, Cloudinary will store the file in the folder, but the public_id won't have 'folders/documents/'
         resolve({
           url: result.secure_url,       // URL of the uploaded file
-          public_id: result.public_id   // Public ID of the uploaded file (without folder structure)
+          public_id: result.public_id.split('/').pop(),  // Remove the folder part from public_id
+          fileName: fileName            // Include the original file name
         });
       }
     );
