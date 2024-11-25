@@ -94,18 +94,19 @@ const cloudinaryDeleteFile = (publicId, resourceType = 'raw') => {
     });
   });
 };
-const cloudinaryDownloadFile = (publicId, resourceType = 'raw', signUrl = false) => {
+const cloudinaryDownloadFile = (publicId, resourceType = 'raw') => {
   return new Promise((resolve, reject) => {
+    // Always use 'upload' type for public access
     const options = { 
       resource_type: resourceType, 
-      secure_url: true, 
-      type: signUrl ? 'authenticated' : 'upload', // This is fine, but secure_url alone might suffice in most cases
+      secure_url: true,  // Always use HTTPS
+      type: 'upload',  // Public URL (no authentication)
     };
 
     const fileUrl = cloudinary.url(publicId, options);
 
     if (fileUrl) {
-      resolve(fileUrl);
+      resolve(fileUrl);  // Return the URL
     } else {
       reject(new Error('Failed to generate download URL.'));
     }

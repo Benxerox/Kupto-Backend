@@ -185,17 +185,16 @@ const deleteFile = asyncHandler(async (req, res) => {
 
 const downloadFile = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const resourceType = req.query.resource_type || 'raw';
-  const signUrl = req.query.signUrl === 'true';
+  const resourceType = req.query.resource_type || 'raw';  // Default to raw if not specified
 
-  const publicId = `folders/documents/${id}`;
+  const publicId = `folders/documents/${id}`;  // Construct the publicId
 
   try {
-    // Fetch the download URL (with or without signing)
-    const fileUrl = await cloudinaryDownloadFile(publicId, resourceType, signUrl);
+    // Fetch the download URL
+    const fileUrl = await cloudinaryDownloadFile(publicId, resourceType);
 
     if (fileUrl) {
-      res.redirect(fileUrl);  // Redirect to Cloudinary's secure URL
+      res.redirect(fileUrl);  // Redirect to Cloudinary's public URL for the file
     } else {
       res.status(404).json({ message: 'File not found or download URL generation failed' });
     }
