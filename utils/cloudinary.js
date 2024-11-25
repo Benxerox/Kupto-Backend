@@ -1,4 +1,10 @@
 const cloudinary = require('cloudinary').v2;
+const crypto = require('crypto');
+
+// Function to generate a random 24-character alphanumeric public_id
+function generateRandomId() {
+  return Math.random().toString(36).substr(2, 24);  // 24-character random ID
+}
 
 // Configuring Cloudinary with environment variables
 cloudinary.config({
@@ -41,16 +47,16 @@ const cloudinaryDeleteImg = (publicId, resourceType = 'image') => {
 // Upload raw files (documents, PDFs, etc.) to Cloudinary
 const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
   return new Promise((resolve, reject) => {
-    // Set the correct publicId (without folder part)
-    const publicId = fileName.split('.').slice(0, -1).join('.');  // Use only the file name, no folder part
+    // Generate a random public_id
+    const publicId = generateRandomId();
 
     cloudinary.uploader.upload(
       filePath,
       {
         resource_type: resourceType,   // 'raw' for documents
-        public_id: publicId,           // Set the public_id correctly (no duplication of folders)
+        public_id: publicId,           // Use the random public_id
         overwrite: true,                // Ensure that if the file exists, it gets replaced
-        folder: 'folders/documents',    // Specify the Cloudinary folder path
+        folder: 'folders/documents',    // Specify the Cloudinary folder path (files will go here)
       },
       (error, result) => {
         if (error) {
@@ -59,7 +65,7 @@ const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
         }
         resolve({
           url: result.secure_url,       // URL of the uploaded file
-          public_id: result.public_id   // Public ID of the uploaded file
+          public_id: result.public_id   // Public ID of the uploaded file (random, no folder in the ID)
         });
       }
     );

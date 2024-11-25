@@ -156,7 +156,7 @@ const uploadFiles = asyncHandler(async (req, res) => {
 
   try {
     const uploadedFiles = await Promise.all(uploadPromises);
-    res.json(uploadedFiles);
+    res.json(uploadedFiles); // Send response with the uploaded file info
   } catch (error) {
     console.error('Error during file upload:', error);
     res.status(500).json({ message: 'Failed to upload files', error: error.message });
@@ -165,12 +165,12 @@ const uploadFiles = asyncHandler(async (req, res) => {
 
 // Delete file
 const deleteFile = asyncHandler(async (req, res) => {
-  const { id } = req.params;  // This will capture the full path 'folders/documents/P.1 Y.pdf'
+  const publicId = req.params.id;  // Capture only the public_id (e.g., '671b89829a9a0f7f1d35a87b')
   const resourceType = req.query.resource_type || 'raw';  // Default to 'raw' if not provided
 
   try {
     // Call Cloudinary's delete function with the public_id
-    const result = await cloudinaryDeleteFile(id, resourceType);
+    const result = await cloudinaryDeleteFile(publicId, resourceType);
 
     // Check if the deletion was successful
     if (result.result === 'ok') {
