@@ -96,18 +96,20 @@ const cloudinaryDeleteFile = (publicId, resourceType = 'raw') => {
 };
 const cloudinaryDownloadFile = (publicId, resourceType = 'raw', signUrl = false) => {
   return new Promise((resolve, reject) => {
-    // Generate the URL based on resource type and signed URL flag
+    // Prepare options for the Cloudinary URL generation
     const options = { resource_type: resourceType };
 
-    // If the file is private or requires a signed URL
+    // If signed URL is requested
     if (signUrl) {
-      options.secure_url = true;
-      options.type = 'authenticated';  // This makes the URL signed
+      options.secure_url = true;  // Use HTTPS
+      options.type = 'authenticated';  // Makes the URL signed (secure)
     }
 
-    const fileUrl = cloudinary.url(publicId, options);  // Cloudinary URL generation
+    // Generate the Cloudinary URL
+    const fileUrl = cloudinary.url(publicId, options);
+
     if (fileUrl) {
-      resolve(fileUrl);  // Return the URL
+      resolve(fileUrl);  // Return the generated URL
     } else {
       reject(new Error('Failed to generate download URL.'));
     }
