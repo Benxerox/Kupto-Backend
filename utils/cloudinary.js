@@ -41,14 +41,14 @@ const cloudinaryDeleteImg = (publicId, resourceType = 'image') => {
 // Upload raw files (documents, PDFs, etc.) to Cloudinary
 const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
   return new Promise((resolve, reject) => {
-    // Generate the public ID without the folder part
-    const publicId = fileName.split('.').slice(0, -1).join('.');  // Use only the file name, no folder part
+    // Generate the public ID with the correct folder structure
+    const publicId = `folders/documents/${fileName.split('.').slice(0, -1).join('.')}`;  // Full path for public_id
 
     cloudinary.uploader.upload(
       filePath,
       {
         resource_type: resourceType,  // 'raw' for documents
-        public_id: publicId,         // Set the public_id without the folder structure
+        public_id: publicId,         // Correct public_id including 'folders/documents/'
         overwrite: true,              // Ensure that if the file exists, it gets replaced
         folder: 'folders/documents',  // Specify the Cloudinary folder path
       },
