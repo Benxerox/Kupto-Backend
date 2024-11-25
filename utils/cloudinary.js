@@ -54,7 +54,7 @@ const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
       filePath,
       {
         resource_type: resourceType,   // 'raw' for documents
-        public_id: `folders/documents/${randomPublicId}`,     // Use full public_id with folder path
+        public_id: randomPublicId,     // Only use randomPublicId without folder prefix
         overwrite: true,                // Ensure that if the file exists, it gets replaced
         folder: 'folders/documents',    // Specify the Cloudinary folder path
       },
