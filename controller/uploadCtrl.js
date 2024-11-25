@@ -165,11 +165,10 @@ const uploadFiles = asyncHandler(async (req, res) => {
 
 // Delete file
 const deleteFile = asyncHandler(async (req, res) => {
-  const { id } = req.params; // Get the public ID from the request parameters
-  const resourceType = req.query.resource_type || 'raw';  // Default to 'raw', you can pass 'image' for images
+  const { id } = req.params; // This will capture the full path 'folders/documents/P.1 Y.pdf'
+  const resourceType = req.query.resource_type || 'raw'; // Default to 'raw' if not provided
 
   try {
-    // Call cloudinaryDeleteFile with public ID and resource type
     const result = await cloudinaryDeleteFile(id, resourceType);
 
     // Check if the deletion was successful
@@ -179,7 +178,7 @@ const deleteFile = asyncHandler(async (req, res) => {
       res.status(404).json({ message: 'File not found or could not be deleted' });
     }
   } catch (error) {
-    // Log and handle errors appropriately
+    // Log and handle errors
     console.error('Error deleting file:', error);
     res.status(500).json({ message: 'Failed to delete file', error: error.message });
   }
