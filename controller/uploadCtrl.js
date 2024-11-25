@@ -168,10 +168,6 @@ const deleteFile = asyncHandler(async (req, res) => {
   const { id } = req.params;  // This will capture the full path 'folders/documents/P.1 Y.pdf'
   const resourceType = req.query.resource_type || 'raw';  // Default to 'raw' if not provided
 
-  // Log the id and resource type to debug
-  console.log('Deleting file with ID:', id);
-  console.log('Resource type:', resourceType);
-
   try {
     // Call Cloudinary's delete function with the public_id
     const result = await cloudinaryDeleteFile(id, resourceType);
