@@ -54,7 +54,7 @@ const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
       filePath,
       {
         resource_type: resourceType,   // 'raw' for documents
-        public_id: randomPublicId,     // Use the random alphanumeric string as public_id
+        public_id: `folders/documents/${randomPublicId}`,     // Use full public_id with folder path
         overwrite: true,                // Ensure that if the file exists, it gets replaced
         folder: 'folders/documents',    // Specify the Cloudinary folder path
       },
@@ -63,10 +63,9 @@ const cloudinaryUploadFile = (filePath, fileName, resourceType = 'raw') => {
           console.error('Cloudinary upload error:', error);
           return reject(error);
         }
-        // Here, Cloudinary will store the file in the folder, but the public_id won't have 'folders/documents/'
         resolve({
           url: result.secure_url,       // URL of the uploaded file
-          public_id: result.public_id.split('/').pop(),  // Remove the folder part from public_id
+          public_id: result.public_id,  // Full public_id with folder path
           fileName: fileName            // Include the original file name
         });
       }
