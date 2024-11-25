@@ -92,7 +92,7 @@ module.exports = {
   uploadFiles,
   deleteFile
 };*/
-const { cloudinaryUploadImg, cloudinaryDeleteImg, cloudinaryUploadFile, cloudinaryDeleteFile } = require('../utils/cloudinary');
+const { cloudinaryUploadImg, cloudinaryDeleteImg, cloudinaryUploadFile, cloudinaryDeleteFile, cloudinaryDownloadFile } = require('../utils/cloudinary');
 const fs = require('fs');
 const asyncHandler = require('express-async-handler');
 
@@ -186,9 +186,13 @@ const deleteFile = asyncHandler(async (req, res) => {
 const downloadFile = asyncHandler(async (req, res) => {
   const { id } = req.params;  // Get the public ID from the request params
   const resourceType = req.query.resource_type || 'raw'; // Default to 'raw' for files like PDFs, etc.
+  const signUrl = req.query.signUrl === 'true'; // Check if a signed URL is requested
 
   try {
-    const fileUrl = cloudinary.url(id, { resource_type: resourceType, type: 'authenticated' });  // Get URL with authentication for secure download
+    // Fetch the download URL (with or without signing)
+    const fileUrl = await cloudinaryDownloadFile(id, resourceType, signUrl);
+
+    // Redirect to the file's URL
     res.redirect(fileUrl);  // Redirect to the Cloudinary URL for downloading the file
   } catch (error) {
     console.error('Error during file download:', error);

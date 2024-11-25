@@ -94,10 +94,30 @@ const cloudinaryDeleteFile = (publicId, resourceType = 'raw') => {
     });
   });
 };
+const cloudinaryDownloadFile = (publicId, resourceType = 'raw', signUrl = false) => {
+  return new Promise((resolve, reject) => {
+    // Generate the URL based on resource type and signed URL flag
+    const options = { resource_type: resourceType };
+
+    // If the file is private or requires a signed URL
+    if (signUrl) {
+      options.secure_url = true;
+      options.type = 'authenticated';  // This makes the URL signed
+    }
+
+    const fileUrl = cloudinary.url(publicId, options);  // Cloudinary URL generation
+    if (fileUrl) {
+      resolve(fileUrl);  // Return the URL
+    } else {
+      reject(new Error('Failed to generate download URL.'));
+    }
+  });
+};
 
 module.exports = {
   cloudinaryUploadImg,
   cloudinaryDeleteImg,
   cloudinaryUploadFile,
   cloudinaryDeleteFile,
+  cloudinaryDownloadFile,
 };
