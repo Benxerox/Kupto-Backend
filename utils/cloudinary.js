@@ -97,8 +97,8 @@ const cloudinaryDeleteFile = (publicId, resourceType = 'raw') => {
 const cloudinaryDownloadFile = (publicId, resourceType = 'raw') => {
   return new Promise((resolve, reject) => {
     try {
-      // Check if the file is public or private
-      const isPrivate = false; // Set this based on your security settings
+      // Check if the file is public or private. You can adjust this based on your security settings.
+      const isPrivate = false;  // Set to `true` if your Cloudinary file access is private.
 
       const options = {
         resource_type: resourceType, 
@@ -108,20 +108,22 @@ const cloudinaryDownloadFile = (publicId, resourceType = 'raw') => {
       let fileUrl;
 
       if (isPrivate) {
-        // If the file is private, generate a signed URL (with expiration time)
+        // If the file is private, generate a signed URL with an expiration time (e.g., 1 hour)
         fileUrl = cloudinary.url(publicId, {
           ...options,
           sign_url: true,  // Sign the URL
           expiration: 3600,  // 1-hour expiration
         });
       } else {
-        // If the file is public, generate a public URL
+        // If the file is public, generate a direct public URL
         fileUrl = cloudinary.url(publicId, options);
       }
 
-      resolve(fileUrl);  // Return the generated URL (public or signed)
+      // If the file URL is successfully generated, resolve with the URL
+      resolve(fileUrl);
     } catch (error) {
-      reject(error);
+      // If there's an error in generating the URL, reject with the error
+      reject(new Error(`Failed to generate URL for ${publicId}: ${error.message}`));
     }
   });
 };
