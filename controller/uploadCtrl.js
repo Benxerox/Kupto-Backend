@@ -94,21 +94,22 @@ const downloadFile = asyncHandler(async (req, res) => {
   const { id } = req.params;  // Extract the file ID from the URL parameter
   const resourceType = req.query.resource_type || 'raw';  // Default to 'raw' if not specified
 
-  const publicId = `folders/documents/${id}`;  // Construct the Cloudinary public ID
+  // Construct the Cloudinary public ID based on the path
+  const publicId = `folders/documents/${id}`;  // e.g., "folders/documents/ojnul8uxwfd.pdf"
 
   try {
     // Fetch the download URL from Cloudinary
     const fileUrl = await cloudinaryDownloadFile(publicId, resourceType);
 
     // Redirect to the Cloudinary URL (user will be redirected to download the file)
-    res.redirect(fileUrl);  // Redirects the user to the file URL on Cloudinary
+    res.redirect(fileUrl);  // This will redirect the user to the file URL for download
   } catch (error) {
     console.error('Error during file download:', error);
-    
+
     // Send an error response in case of failure
-    res.status(500).json({ 
-      message: 'Failed to download file', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Failed to download file',
+      error: error.message
     });
   }
 });
