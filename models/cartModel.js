@@ -32,6 +32,10 @@ uploadedFiles: [{
   public_id: String,
   url: String
 }],
+instruction: { // Optional instruction field
+  type: String,
+  required: false // This makes it optional
+},
 },{
 timestamps: true,
 });
