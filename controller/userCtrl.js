@@ -493,6 +493,8 @@ const getMyOrders = asyncHandler(async(req, res)=>{
     .populate('orderItems.color')
     .populate('orderItems.size')
     .populate('orderItems.uploadedFiles')
+    .populate('orderItems.instruction')
+
     res.json({
       orders
     })
@@ -519,7 +521,9 @@ const getSingleOrders = asyncHandler(async(req, res)=>{
   const {id} = req.params;
   try {
     const order = await Order.findOne({ _id: id })
-      .populate('orderItems.product').populate('orderItems.color').populate('orderItems.size') // Ensure this matches the field name in your schema
+      .populate('orderItems.product')
+      .populate('orderItems.color')
+      .populate('orderItems.size')
       .populate('user');
     res.json({ order });
     
