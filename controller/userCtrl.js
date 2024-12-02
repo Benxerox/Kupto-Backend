@@ -367,7 +367,8 @@ const userCart = asyncHandler(async (req, res) => {
       size,
       price,
       quantity,
-      uploadedFiles  // Add uploaded files to the cart
+      uploadedFiles,
+      instruction,
     }).save();
 
     res.json(newCart);

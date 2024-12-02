@@ -34,7 +34,7 @@ uploadedFiles: [{
 }],
 instruction: { // Optional instruction field
   type: String,
-  required: false // This makes it optional
+  required: null // This makes it optional
 },
 },{
 timestamps: true,
