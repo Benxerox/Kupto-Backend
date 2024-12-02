@@ -447,6 +447,13 @@ const createOrder = asyncHandler(async (req, res) => {
   const { shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo } = req.body;
   const { _id } = req.user;
 
+  orderItems.forEach(item => {
+    // Ensure the instruction is included if needed
+    if (!item.instruction) {
+      item.instruction = null;  // or provide a default instruction
+    }
+  });
+
   // Check if paymentInfo and paymentMethod are provided
   if (!paymentInfo || !paymentInfo.paymentMethod) {
     console.error('Error: Payment method is required');
@@ -493,7 +500,7 @@ const getMyOrders = asyncHandler(async(req, res)=>{
     .populate('orderItems.color')
     .populate('orderItems.size')
     .populate('orderItems.uploadedFiles')
-    .populate('orderItems.instruction')
+   
 
     res.json({
       orders
