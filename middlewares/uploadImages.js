@@ -32,12 +32,12 @@ const productImgResize = async (req, res, next) => {
       const filename = `product-${Date.now()}-${Math.round(Math.random() * 1e9)}.jpeg`;
 
       const resizedImageBuffer = await sharp(file.buffer)
-        .resize(800, 800) // Example: Resize to 800x800
-        .jpeg({ quality: 80 }) // Example: Set quality to 80%
+        .resize(800, 800) // Resize to 800x800
+        .jpeg({ quality: 80 }) // Set quality to 80%
         .toBuffer();
 
       file.buffer = resizedImageBuffer;
-      file.filename = filename; // Assign the resized file name
+      file.filename = filename; // Assign the resized filename to the file object
     }));
 
     next();

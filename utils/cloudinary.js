@@ -3,7 +3,7 @@ const crypto = require('crypto');
 
 // Function to generate a random 24-character alphanumeric public_id
 function generateRandomId() {
-  return Math.random().toString(36).substr(2, 24);  // 24-character random ID
+  return crypto.randomBytes(12).toString('hex');  // Generates a 24-character hex string
 }
 
 // Configuring Cloudinary with environment variables
@@ -13,31 +13,39 @@ cloudinary.config({
   api_secret: process.env.SECRET_KEY,
 });
 
-// Upload an image from a buffer (in-memory storage)
-const cloudinaryUploadImg = async (fileBuffer) => {
+const cloudinaryUploadImg = (file, fileName, resourceType = 'image') => {
   return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream({ resource_type: 'image' }, (error, result) => {
+    const randomPublicId = generateRandomId();  // Use crypto-based ID generation
+
+    const uploadParams = {
+      resource_type: resourceType,
+      public_id: randomPublicId,
+      overwrite: true,
+      folder: 'images',
+    };
+
+    cloudinary.uploader.upload_stream(uploadParams, (error, result) => {
       if (error) {
-        console.error('Cloudinary upload error:', error);
-        return reject(error);
+        console.error(`Cloudinary upload error for file ${fileName}:`, error);
+        return reject(new Error(`Failed to upload file ${fileName}: ${error.message}`));
       }
       resolve({
         url: result.secure_url,
-        asset_id: result.asset_id,
         public_id: result.public_id,
+        fileName: fileName,  // Include the file name in the response
       });
-    });
-    stream.end(fileBuffer); // Pass the file buffer here
+    }).end(file);
   });
 };
+
 
 // Delete an image from Cloudinary
 const cloudinaryDeleteImg = (publicId, resourceType = 'image') => {
   return new Promise((resolve, reject) => {
     cloudinary.uploader.destroy(publicId, { resource_type: resourceType }, (error, result) => {
       if (error) {
-        console.error('Cloudinary delete error:', error);
-        return reject(error);
+        console.error(`Cloudinary delete error for public_id ${publicId}:`, error);
+        return reject(new Error(`Failed to delete image with public_id ${publicId}: ${error.message}`));
       }
       resolve(result);
     });

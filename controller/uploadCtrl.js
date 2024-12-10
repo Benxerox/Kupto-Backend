@@ -6,12 +6,23 @@ const asyncHandler = require('express-async-handler');
 // Upload images
 const uploadImages = asyncHandler(async (req, res) => {
   const files = req.files;
+
   if (!files || files.length === 0) {
     return res.status(400).json({ message: 'No files uploaded. Please upload at least one image.' });
   }
 
-  const uploader = (file) => cloudinaryUploadImg(file.buffer); // Use buffer instead of path
-  const urls = [];
+  // Validating file types (only allow images)
+  const validImageTypes = ['image/jpeg', 'image/png', 'image/gif'];
+  const invalidFiles = files.filter(file => !validImageTypes.includes(file.mimetype));
+
+  if (invalidFiles.length > 0) {
+    return res.status(400).json({
+      message: 'Invalid file type. Only image files (JPEG, PNG, GIF) are allowed.',
+    });
+  }
+
+  const uploader = (file) => cloudinaryUploadImg(file.buffer, file.originalname); // Include original filename
+  const uploadedImages = [];
 
   try {
     const uploadPromises = files.map(async (file) => {
@@ -19,30 +30,37 @@ const uploadImages = asyncHandler(async (req, res) => {
       return { url, public_id };
     });
 
-    const uploadedImages = await Promise.all(uploadPromises);
+    uploadedImages.push(...await Promise.all(uploadPromises));
     res.json({ uploadedImages });
   } catch (error) {
     console.error('Error during image upload:', error);
     res.status(500).json({
-      message: 'Failed to upload images',
-      error: error.message || 'Unknown error occurred',
+      message: 'Failed to upload images.',
+      error: error.message || 'Unknown error occurred.',
     });
   }
 });
 
+
 // Delete image
 const deleteImages = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
+  if (!id) {
+    return res.status(400).json({ message: 'No image id provided.' });
+  }
+
   try {
     const result = await cloudinaryDeleteImg(id, 'image');
-    if (result.result === 'ok') {
-      res.json({ message: 'Image deleted successfully' });
-    } else {
-      res.status(404).json({ message: 'Image not found or could not be deleted' });
+    
+    if (result && result.result === 'ok') {
+      return res.json({ message: 'Image deleted successfully' });
     }
+
+    res.status(404).json({ message: 'Image not found or could not be deleted' });
   } catch (error) {
     console.error('Error deleting image:', error);
-    res.status(500).json({ message: 'Failed to delete image', error: error.message });
+    res.status(500).json({ message: 'Failed to delete image.', error: error.message });
   }
 });
 
