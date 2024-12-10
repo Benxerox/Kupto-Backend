@@ -7,7 +7,7 @@ const asyncHandler = require('express-async-handler');
 const uploadImages = asyncHandler(async (req, res) => {
   const files = req.files;
   if (!files || files.length === 0) {
-    return res.status(400).json({ message: 'No files uploaded' });
+    return res.status(400).json({ message: 'No files uploaded. Please upload at least one image.' });
   }
 
   const uploader = (file) => cloudinaryUploadImg(file.buffer); // Use buffer instead of path
@@ -20,7 +20,7 @@ const uploadImages = asyncHandler(async (req, res) => {
     });
 
     const uploadedImages = await Promise.all(uploadPromises);
-    res.json(uploadedImages);
+    res.json({ uploadedImages });
   } catch (error) {
     console.error('Error during image upload:', error);
     res.status(500).json({
