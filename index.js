@@ -3,6 +3,7 @@ const express = require('express');
 const dbConnect = require('./config/dbconnect');
 const app = express();
 const dotenv = require('dotenv');
+const axios = require('axios');
 dotenv.config();
 
 const PORT = process.env.PORT || 4000;
@@ -46,6 +47,71 @@ app.use(cors({
   origin: ['https://kupto2020.com', 'https://kupto-admin.com', 'http://localhost:5000', 'http://localhost:3000'], // Add other origins as needed
   credentials: true // Allow credentials if you need to send cookies or authentication headers
 }));
+const momoHost = 'sandbox.momodeveloper.mtn.com';
+const momoTokenUrl = `https://${momoHost}/collection/token`;
+const momoRequestToPayUrl = `https://${momoHost}/collection/v1_0/requesttopay`;
+let momoToken = null;
+
+app.post('/get-momo-token', async (req, res) => {
+  try {
+    const { apiKey, subscriptionKey } = req.body;
+    console.log(apiKey, subscriptionKey);
+
+    const momoTokenResponse = await axios.post(
+      momoTokenUrl, {}, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Ocp-Apim-Subscription-Key': subscriptionKey,
+          Authorization: `Bearer ${apiKey}`,
+        },
+      }
+    );
+    console.log(momoTokenResponse.data);
+    momoToken = momoTokenResponse.data.access_token;
+    res.json({ momoToken });
+  } catch (error) {
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+app.post('/request-to-pay', async (req, res) => {
+  try {
+    if (!momoToken) {
+      return res.status(400).json({ error: 'Momo token not available' });
+    }
+
+    const { total, phone } = req.body; // Make sure these are passed in the request
+    const body = {
+      amount: total, 
+      currency: 'EUR',
+      externalId: 'ac40504da26e48b19c37f875c13febb9',
+      payer: {
+        partyType: 'MSISDN',
+        partyId: phone,
+      },
+      payerMessage: 'Payment for order',
+      payeeNote: 'Payment for order'
+    };
+
+    const momoResponse = await axios.post(
+      momoRequestToPayUrl, 
+      body,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Ocp-Apim-Subscription-Key': 'f7dac286801540169b7355022aa06064',
+          'X-Reference-Id': 'a45d4ba3-f3ef-4318-b1fe-cb1eeeea9bd3',
+          'X-Target-Environment': 'sandbox',
+          Authorization: `Bearer ${momoToken}`,
+        },
+      }
+    );
+    res.json({ momoResponse: momoResponse.data });
+  } catch (error) {
+    console.error('Error during payment request:', error); // Log error details for debugging
+    res.status(500).json({ error: 'An error occurred during the payment process' });
+  }
+});
 
 // Define API routes
 app.use('/api/user', authRouter);
