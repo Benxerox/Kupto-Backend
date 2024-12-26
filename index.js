@@ -52,13 +52,15 @@ const momoTokenUrl = `https://${momoHost}/collection/token`;
 const momoRequestToPayUrl = `https://${momoHost}/collection/v1_0/requesttopay`;
 let momoToken = null;
 
-app.post('/get-momo-token', async (req, res) => {
+app.post('/api/get-momo-token', async (req, res) => {
   try {
-    const { apiKey, subscriptionKey } = req.body;
+    const { apiKey, subscriptionKey } = req.body;  // Get data from frontend
     console.log(apiKey, subscriptionKey);
 
     const momoTokenResponse = await axios.post(
-      momoTokenUrl, {}, {
+      momoTokenUrl,  // Your MoMo API endpoint
+      {},
+      {
         headers: {
           'Content-Type': 'application/json',
           'Ocp-Apim-Subscription-Key': subscriptionKey,
@@ -66,11 +68,12 @@ app.post('/get-momo-token', async (req, res) => {
         },
       }
     );
-    console.log(momoTokenResponse.data);
-    momoToken = momoTokenResponse.data.access_token;
+    
+    const momoToken = momoTokenResponse.data.access_token;
     res.json({ momoToken });
   } catch (error) {
-    res.status(500).json({ error: 'An error occurred' });
+    console.error('Error fetching MoMo token:', error);
+    res.status(500).json({ error: 'An error occurred while fetching MoMo token' });
   }
 });
 
@@ -100,7 +103,7 @@ app.post('/request-to-pay', async (req, res) => {
         headers: {
           'Content-Type': 'application/json',
           'Ocp-Apim-Subscription-Key': 'f7dac286801540169b7355022aa06064',
-          'X-Reference-Id': 'a45d4ba3-f3ef-4318-b1fe-cb1eeeea9bd3',
+          'X-Reference-Id': 'efdf38c5-85ca-4491-981d-1cb7f5a53429',
           'X-Target-Environment': 'sandbox',
           Authorization: `Bearer ${momoToken}`,
         },
