@@ -23,6 +23,7 @@ const couponRouter = require('./routes/couponRoute');
 const enquiryRouter = require('./routes/enqRoute');
 const uploadRouter = require('./routes/uploadRoute');
 const uploadFileRouter = require('./routes/uploadFileRoute');
+const { v4: uuidv4 } = require('uuid'); // Import UUID package
 
 // Middlewares
 const cookieParser = require('cookie-parser');
@@ -83,42 +84,41 @@ app.post('/api/get-momo-token', async (req, res) => {
   }
 });
 
-app.post('/request-to-pay', async (req, res) => {
+
+
+app.post('/api/request-to-pay', async (req, res) => {
   try {
     if (!momoToken) {
-      return res.status(400).json({ error: 'Momo token not available' });
+      return res.status(400).json({ error: 'MoMo token not available' });
     }
 
-    const { total, phone } = req.body; // Make sure these are passed in the request
+    const { total, phone } = req.body; // Get the necessary data from the frontend
     const body = {
-      amount: total, 
+      amount: total,
       currency: 'EUR',
-      externalId: 'ac40504da26e48b19c37f875c13febb9',
+      externalId: uuidv4(), // Generate a unique X-Reference-Id
       payer: {
         partyType: 'MSISDN',
         partyId: phone,
       },
       payerMessage: 'Payment for order',
-      payeeNote: 'Payment for order'
+      payeeNote: 'Payment for order',
     };
 
-    const momoResponse = await axios.post(
-      momoRequestToPayUrl, 
-      body,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Ocp-Apim-Subscription-Key': 'f7dac286801540169b7355022aa06064',
-          'X-Reference-Id': 'efdf38c5-85ca-4491-981d-1cb7f5a53429',
-          'X-Target-Environment': 'sandbox',
-          Authorization: `Bearer ${momoToken}`,
-        },
-      }
-    );
-    res.json({ momoResponse: momoResponse.data });
+    const response = await axios.post(momoRequestToPayUrl, body, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Ocp-Apim-Subscription-Key': subscriptionKey,
+        'X-Reference-Id': body.externalId, // Use the generated UUID as X-Reference-Id
+        'Authorization': `Bearer ${momoToken}`,
+        'X-Target-Environment': 'sandbox',
+      },
+    });
+
+    res.json(response.data); // Send the response from MoMo API back to the frontend
   } catch (error) {
-    console.error('Error during payment request:', error); // Log error details for debugging
-    res.status(500).json({ error: 'An error occurred during the payment process' });
+    console.error('Error during MoMo payment request:', error);
+    res.status(500).json({ error: 'Error during payment request' });
   }
 });
 
