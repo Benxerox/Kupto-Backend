@@ -95,7 +95,7 @@ app.post('/api/request-to-pay', async (req, res) => {
     const { total, phone } = req.body; // Get the necessary data from the frontend
     const body = {
       amount: total,
-      currency: 'EUR',
+      currency: 'EUR',  // Make sure currency is correct
       externalId: uuidv4(), // Generate a unique X-Reference-Id
       payer: {
         partyType: 'MSISDN',
@@ -117,8 +117,11 @@ app.post('/api/request-to-pay', async (req, res) => {
 
     res.json(response.data); // Send the response from MoMo API back to the frontend
   } catch (error) {
-    console.error('Error during MoMo payment request:', error);
-    res.status(500).json({ error: 'Error during payment request' });
+    console.error('Error during MoMo payment request:', error.response ? error.response.data : error.message);
+    res.status(500).json({
+      error: 'Error during payment request',
+      details: error.response ? error.response.data : error.message,
+    });
   }
 });
 
