@@ -50,27 +50,36 @@ app.use(cors({
 const momoHost = 'sandbox.momodeveloper.mtn.com';
 const momoTokenUrl = `https://${momoHost}/collection/token/`;
 const momoRequestToPayUrl = `https://${momoHost}/collection/v1_0/requesttopay`;
+const XReferenceId = 'c3bcdce0-e11e-4ee6-8131-d7a791bc38f6'; // Replace with your X-Reference-Id
+const subscriptionKey = 'c532a3213f2b41e18c9cacd7be3d87cf'; // Replace with your subscription key
+const username = 'c3bcdce0-e11e-4ee6-8131-d7a791bc38f6'; // Replace with your MoMo API username
+const password = '9d14d8c8532a4afe8c9fde5736cb45a4'; // Replace with your MoMo API password
+
 let momoToken = null;
+
+const authHeader = 'Basic ' + Buffer.from(username + ':' + password).toString('base64');
 
 app.post('/api/get-momo-token', async (req, res) => {
   try {
-    const { apiKey, subscriptionKey } = req.body;
-    const momoTokenResponse = await axios.post(
-      momoTokenUrl,  
-      {},  // Empty body since MoMo expects an empty body
+    // Make POST request to get the MoMo token using Basic Auth and required headers
+    const response = await axios.post(
+      momoTokenUrl,
+      {},
       {
         headers: {
           'Content-Type': 'application/json',
-          'Ocp-Apim-Subscription-Key': subscriptionKey,
-          Authorization: `Bearer ${apiKey}`, // API key passed as Bearer token
+          'X-Reference-Id': XReferenceId, // MoMo Reference ID
+          'Ocp-Apim-Subscription-Key': subscriptionKey, // Subscription Key
+          Authorization: authHeader, // Basic Auth header with base64 encoded credentials
         },
       }
     );
-    const momoToken = momoTokenResponse.data.access_token;
-    res.json({ momoToken });
+
+    const momoToken = response.data.access_token; // Extract token from response
+    res.json({ momoToken }); // Send token back in the response
   } catch (error) {
-    console.error('Error fetching MoMo token:', error);
-    res.status(500).json({ error: 'An error occurred while fetching MoMo token' });
+    console.error('Error fetching MoMo token:', error.response ? error.response.data : error.message);
+    res.status(500).json({ error: 'An error occurred while fetching MoMo token', details: error.response ? error.response.data : error.message });
   }
 });
 
