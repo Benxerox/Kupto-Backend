@@ -98,7 +98,7 @@ app.post('/api/request-to-pay', async (req, res) => {
       currency: 'EUR',  // Make sure currency is correct
       externalId: uuidv4(), // Generate a unique X-Reference-Id
       payer: {
-        partyType: 'MSISDN',
+        partyIdType: 'MSISDN',
         partyId: phone,
       },
       payerMessage: 'Payment for order',
