@@ -48,7 +48,7 @@ app.use(cors({
   credentials: true // Allow credentials if you need to send cookies or authentication headers
 }));
 const momoHost = 'sandbox.momodeveloper.mtn.com';
-const momoTokenUrl = `https://${momoHost}/collection/token`;
+const momoTokenUrl = `https://${momoHost}/collection/token/`;
 const momoRequestToPayUrl = `https://${momoHost}/collection/v1_0/requesttopay`;
 let momoToken = null;
 
