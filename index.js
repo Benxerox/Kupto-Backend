@@ -54,21 +54,18 @@ let momoToken = null;
 
 app.post('/api/get-momo-token', async (req, res) => {
   try {
-    const { apiKey, subscriptionKey } = req.body;  // Get data from frontend
-    console.log(apiKey, subscriptionKey);
-
+    const { apiKey, subscriptionKey } = req.body;
     const momoTokenResponse = await axios.post(
-      momoTokenUrl,  // Your MoMo API endpoint
-      {},
+      momoTokenUrl,  
+      {},  // Empty body since MoMo expects an empty body
       {
         headers: {
           'Content-Type': 'application/json',
           'Ocp-Apim-Subscription-Key': subscriptionKey,
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${apiKey}`, // API key passed as Bearer token
         },
       }
     );
-    
     const momoToken = momoTokenResponse.data.access_token;
     res.json({ momoToken });
   } catch (error) {
