@@ -113,7 +113,7 @@ app.post('/api/request-to-pay', async (req, res) => {
     const body = {
       amount: totalAmount,
       currency: 'EUR',  // Make sure currency is correct
-      externalId: uuidv4(), // Generate a unique X-Reference-Id
+      externalId: '500b9847-d858-45e0-a109-9f467e136c0d', // Generate a unique X-Reference-Id
       payer: {
         partyIdType: 'MSISDN',
         partyId: phone,
@@ -126,7 +126,7 @@ app.post('/api/request-to-pay', async (req, res) => {
       headers: {
         'Content-Type': 'application/json',
         'Ocp-Apim-Subscription-Key': subscriptionKey,
-        'X-Reference-Id': body.externalId, // Use the generated UUID as X-Reference-Id
+        'X-Reference-Id': 'c8fd345c-0fa7-4abd-9733-0a649cb77e99', // Use the generated UUID as X-Reference-Id
         'Authorization': `Bearer ${momoToken}`,
         'X-Target-Environment': 'sandbox',
       },
