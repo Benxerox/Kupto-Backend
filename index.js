@@ -56,11 +56,12 @@ const subscriptionKey = 'c532a3213f2b41e18c9cacd7be3d87cf'; // Replace with your
 const username = 'c3bcdce0-e11e-4ee6-8131-d7a791bc38f6'; // Replace with your MoMo API username
 const password = '9d14d8c8532a4afe8c9fde5736cb45a4'; // Replace with your MoMo API password
 
-let momoToken = null;
+
 
 const authHeader = 'Basic ' + Buffer.from(username + ':' + password).toString('base64');
+let momoToken = null;
 
-const getMomoToken = async () => {
+app.post('/api/get-momo-token', async (req, res) => {
   try {
     const momoTokenResponse = await axios.post(
       momoTokenUrl,
@@ -68,43 +69,32 @@ const getMomoToken = async () => {
       {
         headers: {
           'Content-Type': 'application/json',
-          'X-Reference-Id': XReferenceId, // MoMo Reference ID
-          'Ocp-Apim-Subscription-Key': subscriptionKey, // Subscription Key
-          Authorization: authHeader, // Basic Auth header with base64 encoded credentials
+          'X-Reference-Id': XReferenceId,
+          'Ocp-Apim-Subscription-Key': subscriptionKey,
+          Authorization: authHeader,
         },
       }
     );
 
-    momoToken = momoTokenResponse.data.access_token; // Store token globally
+    momoToken = momoTokenResponse.data.access_token;
+    res.json({ momoToken });
   } catch (error) {
     console.error('Error fetching MoMo token:', error.response ? error.response.data : error.message);
-    throw new Error('Error fetching MoMo token');
-  }
-};
-
-app.post('/api/get-momo-token', async (req, res) => {
-  try {
-    await getMomoToken(); // Fetch token when this endpoint is hit
-    res.json({ momoToken }); // Send token back in the response
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Error fetching MoMo token', details: error.response ? error.response.data : error.message });
   }
 });
-
-
-
 
 app.post('/api/request-to-pay', async (req, res) => {
   try {
     if (!momoToken) {
-      await getMomoToken(); // Ensure token is available before processing payment
+      return res.status(400).json({ error: 'MoMo token not available' });
     }
 
-    const { totalAmount, phone } = req.body; // Get the necessary data from the frontend
+    const { totalAmount, phone } = req.body;
     const body = {
       amount: totalAmount,
-      currency: 'EUR',  // Make sure currency is correct
-      externalId: uuidv4(), // Generate a unique X-Reference-Id
+      currency: 'EUR', // Ensure currency is correct
+      externalId: uuidv4(),
       payer: {
         partyIdType: 'MSISDN',
         partyId: phone,
@@ -117,13 +107,13 @@ app.post('/api/request-to-pay', async (req, res) => {
       headers: {
         'Content-Type': 'application/json',
         'Ocp-Apim-Subscription-Key': subscriptionKey,
-        'X-Reference-Id': body.externalId, // Use the generated UUID as X-Reference-Id
+        'X-Reference-Id': body.externalId,
         'Authorization': `Bearer ${momoToken}`,
         'X-Target-Environment': 'sandbox',
       },
     });
 
-    res.json({ momoResponse: momoResponse.data }); // Send the response from MoMo API back to the frontend
+    res.json(momoResponse.data);
   } catch (error) {
     console.error('Error during MoMo payment request:', error.response ? error.response.data : error.message);
     res.status(500).json({
