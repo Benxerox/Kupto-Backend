@@ -105,15 +105,28 @@ app.post('/api/get-momo-token', async (req, res) => {
 // MoMo payment request
 app.post('/api/request-to-pay', async (req, res) => {
   try {
+    // Check if MoMo token is available
     if (!momoToken) {
       return res.status(400).json({ error: 'MoMo token not available' });
     }
 
-    const { totalAmount, phone } = req.body; // Get the necessary data from the frontend
+    // Get the necessary data from the request body
+    const { totalAmount, phone } = req.body;
+
+    // Validate the incoming data
+    if (!totalAmount || !phone) {
+      return res.status(400).json({ error: 'Missing required fields: totalAmount or phone' });
+    }
+
+    // Generate unique IDs for MoMo payment request
+    const externalId = uuidv4();  // Generate unique externalId
+    const xReferenceId = uuidv4();  // Generate unique X-Reference-Id
+
+    // Build the request payload
     const body = {
       amount: totalAmount,
-      currency: 'EUR',  // Make sure currency is correct
-      externalId: uuidv4(), // Generate a unique X-Reference-Id
+      currency: 'EUR',  // Ensure the currency is correct
+      externalId: externalId,
       payer: {
         partyIdType: 'MSISDN',
         partyId: phone,
@@ -122,19 +135,24 @@ app.post('/api/request-to-pay', async (req, res) => {
       payeeNote: 'Payment for order',
     };
 
+    // Make the MoMo API request
     const momoResponse = await axios.post(momoRequestToPayUrl, body, {
       headers: {
         'Content-Type': 'application/json',
         'Ocp-Apim-Subscription-Key': subscriptionKey,
-        'X-Reference-Id': uuidv4(), // Use the generated UUID as X-Reference-Id
+        'X-Reference-Id': xReferenceId,  // Use generated UUID as X-Reference-Id
         'Authorization': `Bearer ${momoToken}`,
-        'X-Target-Environment': 'sandbox',
+        'X-Target-Environment': 'sandbox',  // Or 'production' if in live environment
       },
     });
 
-    res.json({ momoResponse: momoResponse.data }); // Send the response from MoMo API back to the frontend
+    // Return the MoMo response back to the frontend
+    res.json({ momoResponse: momoResponse.data });
   } catch (error) {
+    // Log the error details for debugging
     console.error('Error during MoMo payment request:', error.response ? error.response.data : error.message);
+
+    // Return a specific error response to the frontend
     res.status(500).json({
       error: 'Error during payment request',
       details: error.response ? error.response.data : error.message,
