@@ -111,12 +111,12 @@ app.post('/api/request-to-pay', async (req, res) => {
 
     const { totalAmount, phone } = req.body; // Get the necessary data from the frontend
     const body = {
-      amount: totalAmount,
+      amount: '3000',
       currency: 'EUR',  // Make sure currency is correct
       externalId: uuidv4(), // Generate a unique X-Reference-Id
       payer: {
         partyIdType: 'MSISDN',
-        partyId: phone,
+        partyId: '255656565',
       },
       payerMessage: 'Payment for order',
       payeeNote: 'Payment for order',
