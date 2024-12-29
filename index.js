@@ -92,9 +92,9 @@ app.post('/api/request-to-pay', async (req, res) => {
       return res.status(400).json({ error: 'MoMo token not available' });
     }
 
-    const { total, phone } = req.body; // Get the necessary data from the frontend
+    const { totalAmount, phone } = req.body; // Get the necessary data from the frontend
     const body = {
-      amount: total,
+      amount: totalAmount,
       currency: 'EUR',  // Make sure currency is correct
       externalId: uuidv4(), // Generate a unique X-Reference-Id
       payer: {
