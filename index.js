@@ -104,6 +104,7 @@ app.post('/api/get-momo-token', async (req, res) => {
 
 // MoMo payment request
 app.post('/api/request-to-pay', async (req, res) => {
+  console.log('Request Body:', req.body);
   try {
     // Check if MoMo token is available
     if (!momoToken) {
