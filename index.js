@@ -88,34 +88,31 @@ const refreshMoMoToken = async () => {
   }
 };
 
+// Fetch MoMo token (called initially and whenever needed)
+app.post('/api/get-momo-token', async (req, res) => {
+  try {
+    // If the token is expired or not available, refresh it
+    if (!momoToken || (Date.now() - tokenTimestamp > 3600 * 1000)) {  // Token expires in 1 hour (3600 seconds)
+      await refreshMoMoToken();
+    }
+    res.json({ momoToken }); // Send token back in the response
+  } catch (error) {
+    console.error('Error fetching MoMo token:', error.response ? error.response.data : error.message);
+    res.status(500).json({ error: 'An error occurred while fetching MoMo token', details: error.response ? error.response.data : error.message });
+  }
+});
+
+// MoMo payment request
 app.post('/api/request-to-pay', async (req, res) => {
   try {
-    // Check if the totalAmount and phone are provided
-    const { totalAmount, phone } = req.body;
-
-    if (!totalAmount || !phone) {
-      return res.status(400).json({ error: 'Missing required fields: totalAmount and/or phone' });
+    if (!momoToken) {
+      return res.status(400).json({ error: 'MoMo token not available' });
     }
 
-    // Optional: Log the values to verify if they are correctly received
-    console.log('Received totalAmount:', totalAmount);
-    console.log('Received phone:', phone);
-
-    // Validate phone format (e.g., 10-digit number)
-    const phonePattern = /^[0-9]{10}$/;
-    if (!phonePattern.test(phone)) {
-      return res.status(400).json({ error: 'Invalid phone number format' });
-    }
-
-    // Validate totalAmount (it should be a positive number)
-    if (isNaN(totalAmount) || totalAmount <= 0) {
-      return res.status(400).json({ error: 'Invalid totalAmount' });
-    }
-
-    // MoMo request body
+    const { totalAmount, phone } = req.body; // Get the necessary data from the frontend
     const body = {
       amount: totalAmount,
-      currency: 'EUR',  // Ensure currency is correct
+      currency: 'EUR',  // Make sure currency is correct
       externalId: uuidv4(), // Generate a unique X-Reference-Id
       payer: {
         partyIdType: 'MSISDN',
@@ -135,15 +132,7 @@ app.post('/api/request-to-pay', async (req, res) => {
       },
     });
 
-    // Handle MoMo API response
-    if (momoResponse.status === 200) {
-      res.json({ status: 'success', data: momoResponse.data });
-    } else {
-      res.status(500).json({
-        error: 'MoMo payment failed',
-        details: momoResponse.data,
-      });
-    }
+    res.json({ momoResponse: momoResponse.data }); // Send the response from MoMo API back to the frontend
   } catch (error) {
     console.error('Error during MoMo payment request:', error.response ? error.response.data : error.message);
     res.status(500).json({
