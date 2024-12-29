@@ -110,17 +110,18 @@ app.post('/api/request-to-pay', async (req, res) => {
       return res.status(400).json({ error: 'MoMo token not available' });
     }
 
-    const { totalAmount, phone } = req.body;
+    const { amount, phone } = req.body;
 
-    if (!totalAmount || !phone) {
-      return res.status(400).json({ error: 'Missing required fields: totalAmount or phone' });
+    // Change totalAmount to amount here
+    if (!amount || !phone) {
+      return res.status(400).json({ error: 'Missing required fields: amount or phone' });
     }
 
     const externalId = uuidv4();
     const xReferenceId = uuidv4();
 
     const body = {
-      amount: totalAmount,
+      amount: amount,
       currency: 'EUR',
       externalId,
       payer: {
