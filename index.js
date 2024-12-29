@@ -60,10 +60,13 @@ const password = '9d14d8c8532a4afe8c9fde5736cb45a4'; // Replace with your MoMo A
 
 const authHeader = 'Basic ' + Buffer.from(username + ':' + password).toString('base64');
 
+// Store token globally (in-memory for simplicity)
 let momoToken = null;
-app.post('/api/get-momo-token', async (req, res) => {
+let tokenTimestamp = null; // Timestamp for token expiration check
+
+// Function to refresh the token if expired
+const refreshMoMoToken = async () => {
   try {
-    // Make POST request to get the MoMo token using Basic Auth and required headers
     const momoTokenResponse = await axios.post(
       momoTokenUrl,
       {},
@@ -77,7 +80,21 @@ app.post('/api/get-momo-token', async (req, res) => {
       }
     );
 
-    const momoToken = momoTokenResponse.data.access_token; // Extract token from response
+    momoToken = momoTokenResponse.data.access_token; // Store the token globally
+    tokenTimestamp = Date.now(); // Store the timestamp of when the token was fetched
+    console.log('MoMo Token fetched at:', tokenTimestamp);
+  } catch (error) {
+    console.error('Error fetching MoMo token:', error.response ? error.response.data : error.message);
+  }
+};
+
+// Fetch MoMo token (called initially and whenever needed)
+app.post('/api/get-momo-token', async (req, res) => {
+  try {
+    // If the token is expired or not available, refresh it
+    if (!momoToken || (Date.now() - tokenTimestamp > 3600 * 1000)) {  // Token expires in 1 hour (3600 seconds)
+      await refreshMoMoToken();
+    }
     res.json({ momoToken }); // Send token back in the response
   } catch (error) {
     console.error('Error fetching MoMo token:', error.response ? error.response.data : error.message);
@@ -85,8 +102,7 @@ app.post('/api/get-momo-token', async (req, res) => {
   }
 });
 
-
-
+// MoMo payment request
 app.post('/api/request-to-pay', async (req, res) => {
   try {
     if (!momoToken) {
@@ -116,7 +132,7 @@ app.post('/api/request-to-pay', async (req, res) => {
       },
     });
 
-    res.json({momoResponse: momoResponse.data}); // Send the response from MoMo API back to the frontend
+    res.json({ momoResponse: momoResponse.data }); // Send the response from MoMo API back to the frontend
   } catch (error) {
     console.error('Error during MoMo payment request:', error.response ? error.response.data : error.message);
     res.status(500).json({
