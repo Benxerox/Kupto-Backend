@@ -105,18 +105,32 @@ app.post('/api/get-momo-token', async (req, res) => {
 // MoMo payment request
 app.post('/api/request-to-pay', async (req, res) => {
   try {
-    if (!momoToken) {
-      return res.status(400).json({ error: 'MoMo token not available' });
+    // Check if the totalAmount and phone are provided
+    const { totalAmount, phone } = req.body;
+
+    if (!totalAmount || !phone) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: totalAmount and/or phone' 
+      });
     }
 
-    const { totalAmount, phone } = req.body; // Get the necessary data from the frontend
+    // Optional: Log the values to verify if they are correctly received
+    console.log('Received totalAmount:', totalAmount);
+    console.log('Received phone:', phone);
+
+    // Check if the totalAmount is a valid number
+    if (isNaN(totalAmount) || totalAmount <= 0) {
+      return res.status(400).json({ error: 'Invalid totalAmount' });
+    }
+
+    // Now proceed with the MoMo request logic
     const body = {
-      amount: '3000',
+      amount: totalAmount,
       currency: 'EUR',  // Make sure currency is correct
       externalId: uuidv4(), // Generate a unique X-Reference-Id
       payer: {
         partyIdType: 'MSISDN',
-        partyId: '255656565',
+        partyId: phone,
       },
       payerMessage: 'Payment for order',
       payeeNote: 'Payment for order',
@@ -132,7 +146,8 @@ app.post('/api/request-to-pay', async (req, res) => {
       },
     });
 
-    res.json({ momoResponse: momoResponse.data }); // Send the response from MoMo API back to the frontend
+    // Send the response from MoMo API back to the frontend
+    res.json({ momoResponse: momoResponse.data });
   } catch (error) {
     console.error('Error during MoMo payment request:', error.response ? error.response.data : error.message);
     res.status(500).json({
