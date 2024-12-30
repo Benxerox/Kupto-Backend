@@ -31,7 +31,7 @@ const orderSchema = new mongoose.Schema({
   paymentInfo: {
     paymentMethod: {
       type: String,
-      enum: ['PayPal', 'Cash on Delivery', 'Mobile Money'],
+      enum: ['PayPal', 'Cash on Delivery', 'MTN', 'Airtel'],
       required: true,
     },
     paypalOrderID: {
