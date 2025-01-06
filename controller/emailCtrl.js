@@ -16,7 +16,7 @@ const sendEmail = asyncHandler(async (data) => {
   // Send mail with defined transport object
   try {
     const info = await transporter.sendMail({
-      from: `"Hey 👻" <${process.env.MAIL_ID}>`, // sender address
+      from: `"Kupto " <${process.env.MAIL_ID}>`, // sender address
       to: data.to, // list of receivers
       subject: data.subject, // Subject line
       text: data.text, // plain text body
