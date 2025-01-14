@@ -41,8 +41,8 @@ var productSchema = new mongoose.Schema({
         default: 0,
     },
     printingPrice: {
-      type: Number,
-      default: 0,
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Pprice',
     },
     images: [{
         public_id: String,
