@@ -8,6 +8,12 @@ const printPriceSchema = new mongoose.Schema({
     unique: true,
     index: true,
   }, 
+ 
+    preparePrice: {
+      type: Number,
+      default: 0,
+    },
+  
   printPrice: {
     oneSide: {
       type: Number,
