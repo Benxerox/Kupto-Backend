@@ -5,25 +5,36 @@ const validateMongoDbId = require('../utils/validateMongodbid');
 
 const createPrice = asyncHandler(async (req, res) => {
   try {
-    console.log('Received Request Body:', req.body); // For dev, remove in production
+    console.log('Received Request Body:', req.body); // For development, remove in production
 
     // Validate that title and price objects are provided
-    if (!req.body.title || req.body.printPrice === undefined || req.body.discountPrintPrice === undefined) {
-      return res.status(400).json({ message: 'Title and prices (printPrice, discountPrintPrice) are required.' });
+    if (!req.body.title || req.body.printPrice === undefined) {
+      return res.status(400).json({ message: 'Title and print prices (oneSide, twoSide) are required.' });
+    }
+
+    // Validate printPrice object fields (oneSide and twoSide)
+    if (req.body.printPrice.oneSide === undefined || req.body.printPrice.twoSide === undefined) {
+      return res.status(400).json({ message: 'Both oneSide and twoSide prices are required.' });
     }
 
     // Create slug from title
     req.body.slug = slugify(req.body.title);
 
-    console.log('Price to be created:', req.body);
-
+    // Create the new price document
     const newPrice = await Pprice.create(req.body);
 
-    console.log('Created Price:', newPrice);
+    console.log('Created Price:', newPrice); // For development, remove in production
 
     res.status(201).json({ newPrice });
   } catch (error) {
     console.error('Error creating price:', error);
+    
+    // Handle specific MongoDB errors like duplicate key (unique title violation)
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'A price with this title already exists.' });
+    }
+    
+    // General error handling
     res.status(500).json({ error: error.message });
   }
 });
