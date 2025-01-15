@@ -24,16 +24,8 @@ const printPriceSchema = new mongoose.Schema({
       default: 0,
     }
   },
-  discountPrintPrice: {
-    oneSide: {
-      type: Number,
-      default: 0,
-    },
-    twoSide: {
-      type: Number,
-      default: 0,
-    }
-  },
+
+  
 }, {
   timestamps: true,
 });

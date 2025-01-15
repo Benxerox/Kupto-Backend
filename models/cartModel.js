@@ -36,6 +36,10 @@ instruction: { // Optional instruction field
   type: String,
   required: null // This makes it optional
 },
+printSide: { // Optional instruction field
+  type: String,
+  required: null // This makes it optional
+},
 },{
 timestamps: true,
 });
