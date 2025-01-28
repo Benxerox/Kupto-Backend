@@ -40,10 +40,10 @@ var productSchema = new mongoose.Schema({
         type: Number,
         default: 0,
     },
-    printingPrice: [{
+    printingPrice: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Pprice',
-    }],
+    },
     images: [{
         public_id: String,
         url: String,
