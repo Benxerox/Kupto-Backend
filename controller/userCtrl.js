@@ -440,9 +440,99 @@ const emptyCart = asyncHandler(async(req, res)=>{
 });
 
 
+const createOrder = asyncHandler(async (req, res) => {
+  const { shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo } = req.body;
+  const { _id } = req.user;
 
+  orderItems.forEach(item => {
+    // Ensure the instruction is included if needed
+    if (!item.instruction) {
+      item.instruction = null;  // or provide a default instruction
+    }
+  });
 
+  // Check if paymentInfo and paymentMethod are provided
+  if (!paymentInfo || !paymentInfo.paymentMethod) {
+    console.error('Error: Payment method is required');
+    return res.status(400).json({ message: 'Payment method is required' });
+  }
 
+  // Validate PayPal-specific fields if PayPal is selected
+  if (paymentInfo.paymentMethod === 'PayPal') {
+    if (!paymentInfo.paypalOrderID || !paymentInfo.paypalPaymentID) {
+      console.error('Error: PayPal Order ID and Payment ID are required for PayPal payments');
+      return res.status(400).json({ message: 'PayPal Order ID and Payment ID are required for PayPal payments' });
+    }
+  } else {
+    // Ensure that PayPal specific fields are set to null if not using PayPal
+    paymentInfo.paypalOrderID = null;
+    paymentInfo.paypalPaymentID = null;
+  }
+
+  try {
+    // Create the order
+    const order = await Order.create({
+      shippingInfo,
+      orderItems,
+      totalPrice,
+      totalPriceAfterDiscount,
+      paymentInfo,
+      user: _id,
+    });
+
+    // Fetch user email for sending the receipt
+    const user = await User.findById(_id);
+    const userEmail = user.email;
+
+    // Create a receipt HTML content
+    const receiptHtml = `
+      <h1>Order Receipt</h1>
+      <h3>Order Number: ${order._id}</h3>
+      <h3>Shipping Information:</h3>
+      <p>Address: ${shippingInfo.address}</p>
+      <p>City: ${shippingInfo.city}</p>
+      <p>Zip: ${shippingInfo.zip}</p>
+      <h3>Order Items:</h3>
+      <ul>
+        ${orderItems.map(item => `
+          <li>
+            Product: ${item.product.name}<br>
+            Quantity: ${item.quantity}<br>
+            Price: ${item.price}<br>
+            Size: ${item.size}<br>
+            Color: ${item.color}<br>
+            Instructions: ${item.instruction || 'None'}
+          </li>
+        `).join('')}
+      </ul>
+      <h3>Total Price: ${totalPrice}</h3>
+      <h3>Payment Method: ${paymentInfo.paymentMethod}</h3>
+      <h3>Order Date: ${order.createdAt}</h3>
+    `;
+
+    // Prepare email data
+    const emailData = {
+      to: userEmail,
+      subject: 'Your Order Receipt',
+      text: 'Thank you for your purchase! Please find your receipt below.',
+      html: receiptHtml,
+    };
+
+    // Send email with the receipt
+    await sendEmail(emailData);
+
+    res.json({
+      order,
+      success: true,
+      message: 'Order created and receipt sent successfully.',
+    });
+  } catch (error) {
+    console.error('Error creating order:', error.message);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+/*
 const createOrder = asyncHandler(async (req, res) => {
   const { shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo } = req.body;
   const { _id } = req.user;
@@ -491,6 +581,7 @@ const createOrder = asyncHandler(async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 });
+*/
 
 const getMyOrders = asyncHandler(async(req, res)=>{
   const {_id} = req.user;
