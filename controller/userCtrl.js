@@ -513,11 +513,16 @@ const createOrder = asyncHandler(async (req, res) => {
     };
 
     // Send the email
+  
     try {
       await sendEmail(emailData);
+      console.log(emailData);
     } catch (error) {
-      console.error('Error sending email:', error);
-      return res.status(500).json({ message: 'Failed to send email', error: error.message });
+      console.error('Error sending email:', error);  // Log full error details
+      return res.status(500).json({ 
+        message: 'Failed to send email', 
+        error: error.message || 'Unknown error'
+      });
     }
 
     res.json({
