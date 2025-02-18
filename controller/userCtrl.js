@@ -445,26 +445,22 @@ const createOrder = asyncHandler(async (req, res) => {
   const { _id } = req.user;
 
   orderItems.forEach(item => {
-    // Ensure the instruction is included if needed
     if (!item.instruction) {
-      item.instruction = null;  // or provide a default instruction
+      item.instruction = null;  // Default instruction if missing
     }
   });
 
-  // Check if paymentInfo and paymentMethod are provided
   if (!paymentInfo || !paymentInfo.paymentMethod) {
     console.error('Error: Payment method is required');
     return res.status(400).json({ message: 'Payment method is required' });
   }
 
-  // Validate PayPal-specific fields if PayPal is selected
   if (paymentInfo.paymentMethod === 'PayPal') {
     if (!paymentInfo.paypalOrderID || !paymentInfo.paypalPaymentID) {
-      console.error('Error: PayPal Order ID and Payment ID are required for PayPal payments');
-      return res.status(400).json({ message: 'PayPal Order ID and Payment ID are required for PayPal payments' });
+      console.error('Error: PayPal Order ID and Payment ID are required');
+      return res.status(400).json({ message: 'PayPal Order ID and Payment ID are required' });
     }
   } else {
-    // Ensure that PayPal specific fields are set to null if not using PayPal
     paymentInfo.paypalOrderID = null;
     paymentInfo.paypalPaymentID = null;
   }
@@ -480,11 +476,10 @@ const createOrder = asyncHandler(async (req, res) => {
       user: _id,
     });
 
-    // Fetch user email for sending the receipt
     const user = await User.findById(_id);
     const userEmail = user.email;
 
-    // Create a receipt HTML content
+    // Create the receipt content
     const receiptHtml = `
       <h1>Order Receipt</h1>
       <h3>Order Number: ${order._id}</h3>
@@ -510,7 +505,6 @@ const createOrder = asyncHandler(async (req, res) => {
       <h3>Order Date: ${order.createdAt}</h3>
     `;
 
-    // Prepare email data
     const emailData = {
       to: userEmail,
       subject: 'Your Order Receipt',
@@ -518,8 +512,13 @@ const createOrder = asyncHandler(async (req, res) => {
       html: receiptHtml,
     };
 
-    // Send email with the receipt
-    await sendEmail(emailData);
+    // Send the email
+    try {
+      await sendEmail(emailData);
+    } catch (error) {
+      console.error('Error sending email:', error);
+      return res.status(500).json({ message: 'Failed to send email', error: error.message });
+    }
 
     res.json({
       order,
@@ -528,7 +527,7 @@ const createOrder = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating order:', error.message);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Failed to create order or send email' });
   }
 });
 
