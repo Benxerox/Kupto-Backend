@@ -444,29 +444,26 @@ const createOrder = asyncHandler(async (req, res) => {
   const { shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo } = req.body;
   const { _id } = req.user;
 
+  // Set default instruction if missing
   orderItems.forEach(item => {
-    if (!item.instruction) {
-      item.instruction = null;  // Default instruction if missing
-    }
+    if (!item.instruction) item.instruction = null;
   });
 
+  // Validate payment method
   if (!paymentInfo || !paymentInfo.paymentMethod) {
-    console.error('Error: Payment method is required');
     return res.status(400).json({ message: 'Payment method is required' });
   }
 
-  if (paymentInfo.paymentMethod === 'PayPal') {
-    if (!paymentInfo.paypalOrderID || !paymentInfo.paypalPaymentID) {
-      console.error('Error: PayPal Order ID and Payment ID are required');
-      return res.status(400).json({ message: 'PayPal Order ID and Payment ID are required' });
-    }
+  // Validate PayPal details if needed
+  if (paymentInfo.paymentMethod === 'PayPal' && (!paymentInfo.paypalOrderID || !paymentInfo.paypalPaymentID)) {
+    return res.status(400).json({ message: 'PayPal Order ID and Payment ID are required' });
   } else {
     paymentInfo.paypalOrderID = null;
     paymentInfo.paypalPaymentID = null;
   }
 
   try {
-    // Create the order
+    // Create order
     const order = await Order.create({
       shippingInfo,
       orderItems,
@@ -479,31 +476,8 @@ const createOrder = asyncHandler(async (req, res) => {
     const user = await User.findById(_id);
     const userEmail = user.email;
 
-    // Create the receipt content
-    const receiptHtml = `
-      <h1>Order Receipt</h1>
-      <h3>Order Number: ${order._id}</h3>
-      <h3>Shipping Information:</h3>
-      <p>Address: ${shippingInfo.address}</p>
-      <p>City: ${shippingInfo.city}</p>
-      <p>Zip: ${shippingInfo.zip}</p>
-      <h3>Order Items:</h3>
-      <ul>
-        ${orderItems.map(item => `
-          <li>
-            Product: ${item.product.name}<br>
-            Quantity: ${item.quantity}<br>
-            Price: ${item.price}<br>
-            Size: ${item.size}<br>
-            Color: ${item.color}<br>
-            Instructions: ${item.instruction || 'None'}
-          </li>
-        `).join('')}
-      </ul>
-      <h3>Total Price: ${totalPrice}</h3>
-      <h3>Payment Method: ${paymentInfo.paymentMethod}</h3>
-      <h3>Order Date: ${order.createdAt}</h3>
-    `;
+    // Prepare the email content
+    const receiptHtml = generateReceiptHtml(order, shippingInfo, orderItems, totalPrice, paymentInfo);
 
     const emailData = {
       to: userEmail,
@@ -513,28 +487,50 @@ const createOrder = asyncHandler(async (req, res) => {
     };
 
     // Send the email
-  
     try {
       await sendEmail(emailData);
-      console.log(emailData);
-    } catch (error) {
-      console.error('Error sending email:', error);  // Log full error details
-      return res.status(500).json({ 
-        message: 'Failed to send email', 
-        error: error.message || 'Unknown error'
+      res.json({
+        order,
+        success: true,
+        message: 'Order created and receipt sent successfully.',
       });
+    } catch (emailError) {
+      console.error('Error sending email:', emailError);
+      res.status(500).json({ message: 'Failed to send email', error: emailError.message || 'Unknown error' });
     }
-
-    res.json({
-      order,
-      success: true,
-      message: 'Order created and receipt sent successfully.',
-    });
   } catch (error) {
     console.error('Error creating order:', error.message);
     res.status(500).json({ message: 'Failed to create order or send email' });
   }
 });
+
+// Helper function to generate HTML for the receipt
+const generateReceiptHtml = (order, shippingInfo, orderItems, totalPrice, paymentInfo) => {
+  return `
+    <h1>Order Receipt</h1>
+    <h3>Order Number: ${order._id}</h3>
+    <h3>Shipping Information:</h3>
+    <p>Address: ${shippingInfo.address}</p>
+    <p>City: ${shippingInfo.city}</p>
+    <p>Zip: ${shippingInfo.zip}</p>
+    <h3>Order Items:</h3>
+    <ul>
+      ${orderItems.map(item => `
+        <li>
+          Product: ${item.product.name}<br>
+          Quantity: ${item.quantity}<br>
+          Price: ${item.price}<br>
+          Size: ${item.size}<br>
+          Color: ${item.color}<br>
+          Instructions: ${item.instruction || 'None'}
+        </li>
+      `).join('')}
+    </ul>
+    <h3>Total Price: ${totalPrice}</h3>
+    <h3>Payment Method: ${paymentInfo.paymentMethod}</h3>
+    <h3>Order Date: ${order.createdAt}</h3>
+  `;
+};
 
 /*
 const createOrder = asyncHandler(async (req, res) => {
