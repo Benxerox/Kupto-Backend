@@ -46,7 +46,7 @@ app.use(cookieParser());
 
 
 app.use(cors({
-  origin: ['https://kupto2020.com', 'https://kupto-admin.com', 'http://localhost:5000', 'http://localhost:3000'], // Add other origins as needed
+  origin: ['https://kupto.co', 'https://kupto-admin.com', 'http://localhost:5000', 'http://localhost:3000'], // Add other origins as needed
   credentials: true // Allow credentials if you need to send cookies or authentication headers
 }));
 const momoHost = 'sandbox.momodeveloper.mtn.com';
