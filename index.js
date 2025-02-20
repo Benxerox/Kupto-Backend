@@ -44,25 +44,19 @@ app.use(cookieParser());
 
 // CORS settings
 
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*"); // Use '*' for open access or set a specific domain like http://localhost:3000
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Origin, Content-Type, X-Auth-Token");
-  
-  // Allow cookies to be sent with requests
-  res.header("Access-Control-Allow-Credentials", "true");
 
-  // If pre-flight (OPTIONS) request, respond with 200 status code.
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
 
-  next();
-});
+
+// CORS settings
 app.use(cors({
   origin: ['https://kupto.co', 'https://kupto-admin.com', 'http://localhost:5000', 'http://localhost:3000'], // Add other origins as needed
-  credentials: true // Allow credentials if you need to send cookies or authentication headers
+  credentials: true, // Allow credentials (cookies, headers)
+  allowedHeaders: ['Content-Type', 'Authorization'], // Explicitly allow the Authorization header
 }));
+
+// Allow preflight requests for all routes (especially needed for non-standard headers like Authorization)
+app.options('*', cors());
+
 const momoHost = 'sandbox.momodeveloper.mtn.com';
 const momoTokenUrl = `https://${momoHost}/collection/token/`;
 const momoRequestToPayUrl = `https://${momoHost}/collection/v1_0/requesttopay`;
