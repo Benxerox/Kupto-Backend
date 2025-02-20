@@ -49,9 +49,10 @@ app.use(cookieParser());
 
 // CORS settings
 app.use(cors({
-  origin: ['https://kupto.co', 'https://kupto-admin.com', 'http://localhost:5000', 'http://localhost:3000'], // Add other origins as needed
+  origin: ['https://www.kupto.co', 'https://kupto-admin.com', 'http://localhost:5000', 'http://localhost:3000'], // Add other origins as needed
   credentials: true, // Allow credentials (cookies, headers)
   allowedHeaders: ['Content-Type', 'Authorization'], // Explicitly allow the Authorization header
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Explicitly specify allowed HTTP methods
 }));
 
 // Allow preflight requests for all routes (especially needed for non-standard headers like Authorization)
