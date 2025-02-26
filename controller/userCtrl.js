@@ -439,6 +439,57 @@ const emptyCart = asyncHandler(async(req, res)=>{
   }
 });
 
+const getProductTitleById = async (productId) => {
+  try {
+    // Find the product by ID
+    const product = await Product.findById(productId);
+    if (!product) {
+      throw new Error('Product not found');
+    }
+    return product.title; // Return the product title
+  } catch (error) {
+    throw new Error('Error retrieving product title: ' + error.message);
+  }
+};
+
+
+// Helper function to generate HTML for the receipt
+const generateReceiptHtml = async (order, shippingInfo, orderItems, totalPrice, paymentInfo) => {
+  const orderItemsHtml = await Promise.all(orderItems.map(async (item) => {
+    try {
+      const productTitle = await getProductTitleById(item.product); // Extract product title
+      return `
+        <li>
+          Product: ${productTitle}<br>
+          Quantity: ${item.quantity}<br>
+          Price: ${item.price}<br>
+          Size: ${item.size}<br>
+          Color: ${item.color}<br>
+          Instructions: ${item.instruction || 'None'}
+        </li>
+      `;
+    } catch (error) {
+      return `<li>Error fetching product details: ${error.message}</li>`;
+    }
+  }));
+
+  return `
+    <h1>Order Receipt</h1>
+    <h3>Order Number: ${order._id}</h3>
+    <h3>Shipping Information:</h3>
+    <p>Address: ${shippingInfo.firstName}  ${shippingInfo.lastName}</p>
+    <p>Address: ${shippingInfo.address}</p>
+
+    <h3>Order Items:</h3>
+    <ul>
+      ${orderItemsHtml.join('')}
+    </ul>
+    <h3>Total Price: ${totalPrice}</h3>
+    <h3>Payment Method: ${paymentInfo.paymentMethod}</h3>
+    <h3>Order Date: ${order.createdAt}</h3>
+  `;
+};
+
 
 const createOrder = asyncHandler(async (req, res) => {
   const { shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo } = req.body;
@@ -463,7 +514,7 @@ const createOrder = asyncHandler(async (req, res) => {
   }
 
   try {
-    // Create the order in the database
+    // Create order
     const order = await Order.create({
       shippingInfo,
       orderItems,
@@ -476,14 +527,13 @@ const createOrder = asyncHandler(async (req, res) => {
     const user = await User.findById(_id);
     const userEmail = user.email;
 
-    // Prepare the email content using the helper function
+    // Prepare the email content
     const receiptHtml = generateReceiptHtml(order, shippingInfo, orderItems, totalPrice, paymentInfo);
 
-    // Prepare the email data
     const emailData = {
       to: userEmail,
       subject: 'Your Order Receipt',
-      text: 'Thank you for your purchase! Please find your receipt below.',
+      text: 'Thank you for your purchase! Please find your receipt below.', 
       html: receiptHtml,
     };
 
