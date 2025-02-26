@@ -446,13 +446,15 @@ const generateReceiptHtml = (order, shippingInfo, orderItems, totalPrice, paymen
     <h1>Order Receipt</h1>
     <h3>Order Number: ${order._id}</h3>
     <h3>Shipping Information:</h3>
+    <p>Address: ${shippingInfo.firstName}  ${shippingInfo.lastName}</p>
     <p>Address: ${shippingInfo.address}</p>
+
     
     <h3>Order Items:</h3>
     <ul>
       ${orderItems.map(item => `
         <li>
-          Product: ${item.product.name}<br>
+          Product: ${item.product}<br>
           Quantity: ${item.quantity}<br>
           Price: ${item.price}<br>
           Size: ${item.size}<br>
@@ -510,7 +512,7 @@ const createOrder = asyncHandler(async (req, res) => {
     const emailData = {
       to: userEmail,
       subject: 'Your Order Receipt',
-      text: 'Thank you for your purchase! Please find your receipt below.',
+      text: 'Thank you for your purchase! Please find your receipt below.', 
       html: receiptHtml,
     };
 
