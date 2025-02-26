@@ -452,11 +452,11 @@ const generateReceiptHtml = (order, shippingInfo, orderItems, totalPrice, paymen
     <ul>
       ${orderItems.map(item => `
         <li>
-          Product: ${item.product.title}<br>
+          Product: ${item.product.name}<br>
           Quantity: ${item.quantity}<br>
           Price: ${item.price}<br>
-          Size: ${item.size.title}<br>
-          Color: ${item.color.title}<br>
+          Size: ${item.size}<br>
+          Color: ${item.color}<br>
           Instructions: ${item.instruction || 'None'}
         </li>
       `).join('')}
