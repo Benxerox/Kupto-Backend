@@ -311,7 +311,7 @@ const forgotPasswordToken = asyncHandler(async (req, res) => {
     const token = await user.createPasswordResetToken();
     await user.save();
 
-    const resetURL = `Hi, please follow this link to reset your password. This link is valid for 10 minutes from now: <a href='http://kupto.co/reset-password/${token}'>Click Here</a>`;
+    const resetURL = `Hi, please follow this link to reset your password. This link is valid for 10 minutes from now: <a href='http://www.kupto.co/reset-password/${token}'>Click Here</a>`;
     const data = {
       to: email,
       text: 'Hey User',
