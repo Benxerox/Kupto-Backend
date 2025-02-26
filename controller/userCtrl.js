@@ -440,6 +440,35 @@ const emptyCart = asyncHandler(async(req, res)=>{
 });
 
 
+// Helper function to generate HTML for the receipt
+const generateReceiptHtml = (order, shippingInfo, orderItems, totalPrice, paymentInfo) => {
+  return `
+    <h1>Order Receipt</h1>
+    <h3>Order Number: ${order._id}</h3>
+    <h3>Shipping Information:</h3>
+    <p>Address: ${shippingInfo.address}</p>
+    <p>City: ${shippingInfo.city}</p>
+    <p>Zip: ${shippingInfo.zip}</p>
+    <h3>Order Items:</h3>
+    <ul>
+      ${orderItems.map(item => `
+        <li>
+          Product: ${item.product.name}<br>
+          Quantity: ${item.quantity}<br>
+          Price: ${item.price}<br>
+          Size: ${item.size}<br>
+          Color: ${item.color}<br>
+          Instructions: ${item.instruction || 'None'}
+        </li>
+      `).join('')}
+    </ul>
+    <h3>Total Price: ${totalPrice}</h3>
+    <h3>Payment Method: ${paymentInfo.paymentMethod}</h3>
+    <h3>Order Date: ${order.createdAt}</h3>
+  `;
+};
+
+
 const createOrder = asyncHandler(async (req, res) => {
   const { shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo } = req.body;
   const { _id } = req.user;
@@ -504,33 +533,6 @@ const createOrder = asyncHandler(async (req, res) => {
   }
 });
 
-// Helper function to generate HTML for the receipt
-const generateReceiptHtml = (order, shippingInfo, orderItems, totalPrice, paymentInfo) => {
-  return `
-    <h1>Order Receipt</h1>
-    <h3>Order Number: ${order._id}</h3>
-    <h3>Shipping Information:</h3>
-    <p>Address: ${shippingInfo.address}</p>
-    <p>City: ${shippingInfo.city}</p>
-    <p>Zip: ${shippingInfo.zip}</p>
-    <h3>Order Items:</h3>
-    <ul>
-      ${orderItems.map(item => `
-        <li>
-          Product: ${item.product.name}<br>
-          Quantity: ${item.quantity}<br>
-          Price: ${item.price}<br>
-          Size: ${item.size}<br>
-          Color: ${item.color}<br>
-          Instructions: ${item.instruction || 'None'}
-        </li>
-      `).join('')}
-    </ul>
-    <h3>Total Price: ${totalPrice}</h3>
-    <h3>Payment Method: ${paymentInfo.paymentMethod}</h3>
-    <h3>Order Date: ${order.createdAt}</h3>
-  `;
-};
 
 /*
 const createOrder = asyncHandler(async (req, res) => {
