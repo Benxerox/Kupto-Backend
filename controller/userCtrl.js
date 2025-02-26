@@ -447,17 +447,16 @@ const generateReceiptHtml = (order, shippingInfo, orderItems, totalPrice, paymen
     <h3>Order Number: ${order._id}</h3>
     <h3>Shipping Information:</h3>
     <p>Address: ${shippingInfo.address}</p>
-    <p>City: ${shippingInfo.city}</p>
-    <p>Zip: ${shippingInfo.zip}</p>
+    
     <h3>Order Items:</h3>
     <ul>
       ${orderItems.map(item => `
         <li>
-          Product: ${item.product.name}<br>
+          Product: ${item.product.title}<br>
           Quantity: ${item.quantity}<br>
           Price: ${item.price}<br>
-          Size: ${item.size}<br>
-          Color: ${item.color}<br>
+          Size: ${item.size.title}<br>
+          Color: ${item.color.title}<br>
           Instructions: ${item.instruction || 'None'}
         </li>
       `).join('')}
