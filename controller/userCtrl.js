@@ -446,29 +446,32 @@ const generateReceiptHtml = (order, shippingInfo, orderItems, totalPrice, paymen
     <h1>Order Receipt</h1>
     <h3>Order Number: ${order._id}</h3>
     <h3>Shipping Information:</h3>
-    <p>Address: ${shippingInfo.firstName}  ${shippingInfo.lastName}</p>
-    <p>Address: ${shippingInfo.address}</p>
+    <p>Name: ${shippingInfo.firstName} ${shippingInfo.lastName}</p>
+    <p>Address: ${shippingInfo.address || 'Not provided'}, ${shippingInfo.region || 'Not provided'}, ${shippingInfo.subRegion || 'Not provided'}</p>
 
-    
     <h3>Order Items:</h3>
     <ul>
       ${orderItems.map(item => `
         <li>
-          Product: ${item.product}<br>
-          Quantity: ${item.quantity}<br>
-          Price: ${item.price}<br>
-          Size: ${item.size}<br>
-          Color: ${item.color}<br>
-          Instructions: ${item.instruction || 'None'}
+          <div style="width: 70%;">  <!-- Fixed the missing closing quote here -->
+            <img src="${item.product.images[0]?.url || ''}" alt="Product Image" style="width: 100%;" />
+          </div>
+          <strong>Product:</strong> ${item.product.title}<br>
+          <strong>Description:</strong> ${item.product.description || 'No description available'}<br>
+          <strong>Quantity:</strong> ${item.quantity}<br>
+          <strong>Price:</strong> UGX ${item.price}<br>
+          <strong>Size:</strong> ${item.size?.title || 'Not specified'}<br>
+          <strong>Color:</strong> ${item.color?.title || 'Not specified'}<br>
+          <strong>Instructions:</strong> ${item.instruction || 'None'}<br>
         </li>
       `).join('')}
     </ul>
-    <h3>Total Price: ${totalPrice}</h3>
-    <h3>Payment Method: ${paymentInfo.paymentMethod}</h3>
-    <h3>Order Date: ${order.createdAt}</h3>
+
+    <h3>Total Price: UGX ${totalPrice}</h3>
+    <h3>Payment Method: ${paymentInfo.paymentMethod || 'Not specified'}</h3>
+    <h3>Order Date: ${new Date(order.createdAt).toLocaleDateString()}</h3>
   `;
 };
-
 
 const createOrder = asyncHandler(async (req, res) => {
   const { shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo } = req.body;
