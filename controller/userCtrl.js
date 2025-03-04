@@ -453,7 +453,7 @@ const generateReceiptHtml = (order, shippingInfo, orderItems, totalPrice, paymen
     <ul>
       ${orderItems.map(item => `
         <li>
-          <div style="width: 70%;">  <!-- Fixed the missing closing quote here -->
+          <div style="width: 100%;">  <!-- Fixed the missing closing quote here -->
             <img src="${item.product.images[0]?.url || ''}" alt="Product Image" style="width: 100%;" />
           </div>
           <strong>Product:</strong> ${item.product.title}<br>
