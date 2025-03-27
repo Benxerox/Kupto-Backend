@@ -38,7 +38,7 @@ var productSchema = new mongoose.Schema({
     },
     minOrder: {
         type: Number,
-        required: 'false',
+        required: false,
         default: null,
     },
     sold: {
