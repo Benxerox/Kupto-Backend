@@ -24,6 +24,16 @@ const printPriceSchema = new mongoose.Schema({
       default: 0,
     }
   },
+  printPriceDiscount: {
+    oneSide: {
+      type: Number,
+      default: 0,
+    },
+    twoSide: {
+      type: Number,
+      default: 0,
+    }
+  }
 
   
 }, {
