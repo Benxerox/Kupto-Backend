@@ -48,26 +48,13 @@ app.use(cookieParser());
 
 
 // CORS settings
-/*app.use(cors({
-  origin: ['https://www.kupto.co', 'https://kupto-admin.com', 'http://localhost:5000', 'http://localhost:3000'], // Add other origins as needed
+app.use(cors({
+  origin: ['https://www.kupto.co', 'https://kupto-admin.com', 'http://localhost:5000', 'http://localhost:3000', 'https://api.kupto.co', 'capacitor://localhost'], // Add other origins as needed
   credentials: true, // Allow credentials (cookies, headers)
   allowedHeaders: ['Content-Type', 'Authorization'], // Explicitly allow the Authorization header
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Explicitly specify allowed HTTP methods
-}));*/
-app.use(cors({
-  origin: [
-    'https://www.kupto.co',
-    'https://kupto-admin.com',
-    'http://localhost:5000',
-    'http://localhost:3000',
-    'http://10.0.2.2:3000',            // Emulator accessing frontend
-    'capacitor://localhost',           // Android WebView
-    'http://192.168.43.216:3000'        // Real device (use your real IP here!)
-  ],
-  credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
 }));
+
 
 // Allow preflight requests for all routes (especially needed for non-standard headers like Authorization)
 app.options('*', cors());
