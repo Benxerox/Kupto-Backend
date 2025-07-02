@@ -48,13 +48,34 @@ app.use(cookieParser());
 
 
 // CORS settings
-app.use(cors({
+/*app.use(cors({
   origin: ['https://www.kupto.co', 'https://kupto-admin.com', 'http://localhost:5000', 'http://localhost:3000', 'https://api.kupto.co', 'capacitor://localhost'], // Add other origins as needed
   credentials: true, // Allow credentials (cookies, headers)
   allowedHeaders: ['Content-Type', 'Authorization'], // Explicitly allow the Authorization header
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Explicitly specify allowed HTTP methods
 }));
-
+*/
+app.use(cors({
+  origin: function(origin, callback) {
+    if (!origin) return callback(null, true); // allow requests with no origin (native apps)
+    const allowedOrigins = [
+      'https://www.kupto.co',
+      'https://kupto-admin.com',
+      'http://localhost:5000',
+      'http://localhost:3000',
+      'https://api.kupto.co',
+      'capacitor://localhost'
+    ];
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+}));
 
 // Allow preflight requests for all routes (especially needed for non-standard headers like Authorization)
 app.options('*', cors());
