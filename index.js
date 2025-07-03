@@ -83,10 +83,10 @@ app.options('*', cors());
 const momoHost = 'sandbox.momodeveloper.mtn.com';
 const momoTokenUrl = `https://${momoHost}/collection/token/`;
 const momoRequestToPayUrl = `https://${momoHost}/collection/v1_0/requesttopay`;
-const XReferenceId = 'c3bcdce0-e11e-4ee6-8131-d7a791bc38f6'; // Replace with your X-Reference-Id
+const XReferenceId = '0b6be0ed-f672-4383-8612-1246cfe8a236'; // Replace with your X-Reference-Id
 const subscriptionKey = 'c532a3213f2b41e18c9cacd7be3d87cf'; // Replace with your subscription key
-const username = 'c3bcdce0-e11e-4ee6-8131-d7a791bc38f6'; // Replace with your MoMo API username
-const password = 'f301b979f4bf49f083d8202ee33c3e0e'; // Replace with your MoMo API password
+const username = '0b6be0ed-f672-4383-8612-1246cfe8a236'; // Replace with your MoMo API username
+const password = 'b2dd1810897c4999aec21ee4ce64546f'; // Replace with your MoMo API password
 
 //'9d14d8c8532a4afe8c9fde5736cb45a4'
 //const momoHost = 'api.momodeveloper.mtn.com';
