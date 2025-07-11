@@ -241,40 +241,33 @@ const makeAirtelPayment = async (accessToken, paymentBody) => {
 
 app.post('/api/airtel/pay', async (req, res) => {
   try {
+    console.log('➡️ Airtel /pay received payload:', req.body);
     const { amount, phone, reference } = req.body;
 
-    if (!amount || !phone || !reference) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
     const accessToken = await fetchAirtelToken();
+    console.log('🔑 Airtel access token:', accessToken);
 
     const paymentBody = {
       reference,
       subscriber: {
         country: 'UG',
         currency: 'UGX',
-        msisdn: phone,
+        msisdn: phone.startsWith('256') ? phone : `256${phone}`
       },
-      transaction: {
-        amount,
-        country: 'UG',
-        currency: 'UGX',
-        id: reference,
-      },
+      transaction: { amount, country: 'UG', currency: 'UGX', id: reference },
     };
+    console.log('📦 Airtel request body:', paymentBody);
 
     const airtelResponse = await makeAirtelPayment(accessToken, paymentBody);
+    console.log('✅ Airtel API success:', airtelResponse);
 
     res.json({ success: true, data: airtelResponse });
   } catch (error) {
-    console.error('Airtel payment failed:', error.response?.data || error.message);
-    res.status(500).json({
-      error: 'Airtel payment failed',
-      details: error.response?.data || error.message,
-    });
+    console.error('❌ Airtel payment failed:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Airtel payment failed', details: error.response?.data || error.message });
   }
 });
+
 
 
 
