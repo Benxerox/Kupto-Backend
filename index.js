@@ -88,8 +88,6 @@ const subscriptionKey = 'c532a3213f2b41e18c9cacd7be3d87cf'; // Replace with your
 const username = '0b6be0ed-f672-4383-8612-1246cfe8a236'; // Replace with your MoMo API username
 const password = 'b2dd1810897c4999aec21ee4ce64546f'; // Replace with your MoMo API password
 
-//'9d14d8c8532a4afe8c9fde5736cb45a4'
-//const momoHost = 'api.momodeveloper.mtn.com';
 
 const authHeader = 'Basic ' + Buffer.from(username + ':' + password).toString('base64');
 
@@ -186,6 +184,99 @@ app.post('/api/request-to-pay', async (req, res) => {
     });
   }
 });
+
+
+// Fetch Airtel Access Token
+const fetchAirtelToken = async () => {
+  const clientId = process.env.AIRTEL_CLIENT_ID;
+  const clientSecret = process.env.AIRTEL_CLIENT_SECRET;
+
+  const base64Credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
+  const response = await axios.post(
+    'https://openapi.airtel.africa/auth/oauth2/token',
+    {
+      grant_type: 'client_credentials',
+    },
+    {
+      headers: {
+        Authorization: `Basic ${base64Credentials}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+  return response.data.access_token;
+};
+
+// Airtel Token API route
+app.post('/api/airtel/token', async (req, res) => {
+  try {
+    const token = await fetchAirtelToken();
+    res.json({ accessToken: token });
+  } catch (error) {
+    console.error('Error fetching Airtel token:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to fetch Airtel token' });
+  }
+});
+
+
+
+const makeAirtelPayment = async (accessToken, paymentBody) => {
+  const response = await axios.post(
+    'https://openapi.airtel.africa/merchant/v1/payments/',
+    paymentBody,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Country': 'UG',
+        'X-Currency': 'UGX',
+      },
+    }
+  );
+
+  return response.data;
+};
+
+app.post('/api/airtel/pay', async (req, res) => {
+  try {
+    const { amount, phone, reference } = req.body;
+
+    if (!amount || !phone || !reference) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const accessToken = await fetchAirtelToken();
+
+    const paymentBody = {
+      reference,
+      subscriber: {
+        country: 'UG',
+        currency: 'UGX',
+        msisdn: phone,
+      },
+      transaction: {
+        amount,
+        country: 'UG',
+        currency: 'UGX',
+        id: reference,
+      },
+    };
+
+    const airtelResponse = await makeAirtelPayment(accessToken, paymentBody);
+
+    res.json({ success: true, data: airtelResponse });
+  } catch (error) {
+    console.error('Airtel payment failed:', error.response?.data || error.message);
+    res.status(500).json({
+      error: 'Airtel payment failed',
+      details: error.response?.data || error.message,
+    });
+  }
+});
+
+
 
 // Define API routes
 app.use('/api/user', authRouter);
