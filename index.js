@@ -35,38 +35,19 @@ const cors = require('cors');
 // Connect to the database
 dbConnect();
 
-// Apply middlewares
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(morgan('dev'));
-
-app.use(cookieParser());
-
-// CORS settings
-
-
-
-
-// CORS settings
-/*app.use(cors({
-  origin: ['https://www.kupto.co', 'https://kupto-admin.com', 'http://localhost:5000', 'http://localhost:3000', 'https://api.kupto.co', 'capacitor://localhost'], // Add other origins as needed
-  credentials: true, // Allow credentials (cookies, headers)
-  allowedHeaders: ['Content-Type', 'Authorization'], // Explicitly allow the Authorization header
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Explicitly specify allowed HTTP methods
-}));
-*/
-app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true); // allow requests with no origin (native apps)
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true); // allow mobile/native
     const allowedOrigins = [
       'https://www.kupto.co',
       'https://kupto-admin.com',
       'http://localhost:5000',
       'http://localhost:3000',
       'https://api.kupto.co',
-      'capacitor://localhost'
+      'capacitor://localhost',
+      'https://localhost'
     ];
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -75,10 +56,27 @@ app.use(cors({
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-}));
+};
 
-// Allow preflight requests for all routes (especially needed for non-standard headers like Authorization)
-app.options('*', cors());
+// Apply CORS globally
+app.use(cors(corsOptions));
+
+// Apply CORS to preflight requests too
+app.options('*', cors(corsOptions));
+
+// Apply middlewares
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(morgan('dev'));
+
+app.use(cookieParser());
+
+
+
+
+
+
+
 
 const momoHost = 'sandbox.momodeveloper.mtn.com';
 const momoTokenUrl = `https://${momoHost}/collection/token/`;
@@ -294,10 +292,7 @@ app.get('/', (req, res) => {
   res.send('Welcome to the homepage!');
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  res.status(500).json({ message: err.message });
-});
+
 
 // Not Found and Error Handler
 app.use(notFound);
