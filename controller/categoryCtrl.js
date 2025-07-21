@@ -13,16 +13,33 @@ const createCategory = asyncHandler(async(req, res)=>{
   }
 });
 
-const updateCategory = asyncHandler(async(req, res)=>{
-  const {id} =  req.params;
+const updateCategory = asyncHandler(async (req, res) => {
+  const { id } = req.params;
   validateMongoDbId(id);
+
   try {
-    const updatedCategory = await Category.findByIdAndUpdate(id,req.body,{
-      new: true,
-    });
+    const updateData = {
+      title: req.body.title,
+    };
+
+    // Only update images if provided
+    if (req.body.images && Array.isArray(req.body.images)) {
+      updateData.images = req.body.images;
+    }
+
+    const updatedCategory = await Category.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true }
+    );
+
+    if (!updatedCategory) {
+      return res.status(404).json({ message: 'Category not found' });
+    }
+
     res.json(updatedCategory);
   } catch (error) {
-    throw new Error (error);
+    throw new Error(error.message || 'Failed to update category');
   }
 });
 
