@@ -20,56 +20,49 @@ timestamps: true,
 module.exports = mongoose.model('Color', colorSchema);*/
 
 const mongoose = require("mongoose");
+const slugify = require("slugify");
+
+const hexRegex = /^#([0-9A-F]{3}|[0-9A-F]{6})$/;
 
 const colorSchema = new mongoose.Schema(
   {
-    /* =====================
-       BASIC COLOR INFO
-    ===================== */
     name: {
       type: String,
       required: true,
       trim: true,
-      unique: true, // "Black", "White", "Royal Blue"
+      unique: true,
+      maxlength: 60,
     },
 
     slug: {
       type: String,
       required: true,
       unique: true,
-      lowercase: true, // "royal-blue"
+      lowercase: true,
       index: true,
     },
 
-    /* =====================
-       COLOR VALUES (UI + PRINT)
-    ===================== */
     hex: {
       type: String,
       required: true,
+      trim: true,
       uppercase: true,
-      match: /^#([0-9A-F]{3}|[0-9A-F]{6})$/,
+      match: hexRegex,
       index: true,
     },
 
-    // Optional — useful if some colors are patterns/textures
     swatchImage: {
       public_id: { type: String, default: "" },
       url: { type: String, default: "" },
     },
 
-    /* =====================
-       PRINTING INFO
-    ===================== */
+
     printNotes: {
       type: String,
       default: "",
-      // e.g. "White ink required on dark materials"
+      trim: true,
     },
 
-    /* =====================
-       VISIBILITY & ORDER
-    ===================== */
     isActive: {
       type: Boolean,
       default: true,
@@ -80,9 +73,6 @@ const colorSchema = new mongoose.Schema(
       default: 0,
     },
 
-    /* =====================
-       METADATA
-    ===================== */
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -91,21 +81,26 @@ const colorSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* =====================
-   INDEXES
-===================== */
-colorSchema.index({ name: 1 });
-colorSchema.index({ hex: 1 });
+// ✅ Always generate slug + normalize hex before validation
+colorSchema.pre("validate", function (next) {
+  if (this.name) {
+    this.slug = slugify(this.name, { lower: true, strict: true, trim: true });
+  }
+  if (this.hex) {
+    this.hex = this.hex.toUpperCase().trim();
+  }
+  next();
+});
 
-/* =====================
-   METHODS
-===================== */
+// Optional helper
 colorSchema.methods.getDisplay = function () {
   return {
     id: this._id,
     name: this.name,
     hex: this.hex,
     swatch: this.swatchImage?.url || null,
+    isActive: this.isActive,
+    sortOrder: this.sortOrder,
   };
 };
 
