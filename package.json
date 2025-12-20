@@ -37,10 +37,6 @@
     "uuid": "^11.0.3"
   },
   "devDependencies": {
-<<<<<<< HEAD
-    "nodemon": "^3.1.11"
-=======
     "nodemon": "^3.1.7"
->>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950
   }
 }
