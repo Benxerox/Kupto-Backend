@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 /*const mongoose = require('mongoose');
-=======
-const mongoose = require('mongoose');
->>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950
 
 var productSchema = new mongoose.Schema({
     title: {
@@ -87,7 +83,6 @@ productSchema.methods.getEffectivePrice = function(orderQuantity) {
     return orderQuantity > 500 ? this.discountedPrice : this.price;
 };
 
-<<<<<<< HEAD
 module.exports = mongoose.model('Product', productSchema);*/
 const mongoose = require("mongoose");
 
@@ -296,6 +291,3 @@ productSchema.methods.getEffectivePrice = function (orderQuantity = 1) {
 };
 
 module.exports = mongoose.model("Product", productSchema);
-=======
-module.exports = mongoose.model('Product', productSchema);
->>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950
