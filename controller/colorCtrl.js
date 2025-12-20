@@ -1,7 +1,6 @@
 const Color = require('../models/colorModel');
 const asyncHandler = require('express-async-handler');
 const validateMongoDbId = require('../utils/validateMongodbid');
-<<<<<<< HEAD
 const slugify = require("slugify");
 
 
@@ -36,29 +35,6 @@ const updateColor = asyncHandler(async (req, res) => {
     res.json(updatedColor);
   } catch (error) {
     throw new Error(error);
-=======
-
-
-const createColor = asyncHandler(async(req, res)=>{
-  try {
-    const newColor = await Color.create(req.body);
-    res.json(newColor);
-  } catch (error) {
-    throw new Error (error);
-  }
-});
-
-const updateColor = asyncHandler(async(req, res)=>{
-  const {id} =  req.params;
-  validateMongoDbId(id);
-  try {
-    const updatedColor = await Color.findByIdAndUpdate(id,req.body,{
-      new: true,
-    });
-    res.json(updatedColor);
-  } catch (error) {
-    throw new Error (error);
->>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950
   }
 });
 
