@@ -31,4 +31,13 @@ const sendEmail = asyncHandler(async (data) => {
   }
 });
 
+<<<<<<< HEAD
 module.exports = sendEmail;
+=======
+module.exports = sendEmail;
+
+
+
+
+
+>>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950

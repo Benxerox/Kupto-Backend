@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 /*const mongoose = require('mongoose'); 
+=======
+const mongoose = require('mongoose'); // Erase if already required
+>>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950
 
 // Declare the Schema of the Mongo model
 const sizeSchema = new mongoose.Schema({
@@ -25,6 +29,7 @@ const sizeSchema = new mongoose.Schema({
 });
 
 // Export the model
+<<<<<<< HEAD
 module.exports = mongoose.model('Size', sizeSchema);*/
 
 const mongoose = require("mongoose");
@@ -149,3 +154,6 @@ sizeSchema.methods.getPrice = function (basePrice) {
 };
 
 module.exports = mongoose.model("Size", sizeSchema);
+=======
+module.exports = mongoose.model('Size', sizeSchema);
+>>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950

@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 /*const User = require ('../models/userModel');
+=======
+const User = require ('../models/userModel');
+>>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950
 const jwt = require("jsonwebtoken");
 const asyncHandler = require("express-async-handler");
 
@@ -33,6 +37,7 @@ const isAdmin = asyncHandler(async(req, res, next)=> {
 
 module.exports = { authMiddleware, isAdmin };
 
+<<<<<<< HEAD
 */
 const User = require("../models/userModel");
 const jwt = require("jsonwebtoken");
@@ -46,10 +51,38 @@ const authMiddleware = asyncHandler(async (req, res, next) => {
   // 1️⃣ Extract token
   if (authHeader && authHeader.startsWith("Bearer ")) {
     token = authHeader.split(" ")[1];
+=======
+/*
+const jwt = require('jsonwebtoken');
+const User = require('../models/userModel');
+const asyncHandler = require('express-async-handler');
+
+const authMiddleware = asyncHandler(async (req, res, next) => {
+  let token;
+
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith('Bearer')
+  ) {
+    try {
+      token = req.headers.authorization.split(' ')[1];
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      req.user = await User.findById(decoded.id).select('-password');
+
+      next();
+    } catch (error) {
+      console.error(error);
+      res.status(401);
+      throw new Error('Not authorized, token failed');
+    }
+>>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950
   }
 
   if (!token) {
     res.status(401);
+<<<<<<< HEAD
     throw new Error("Not authorized, no token attached to header");
   }
 
@@ -71,10 +104,14 @@ const authMiddleware = asyncHandler(async (req, res, next) => {
     console.error("JWT verify error:", error.message);
     res.status(401);
     throw new Error("Not authorized, token invalid or expired. Please log in again.");
+=======
+    throw new Error('Not authorized, no token');
+>>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950
   }
 });
 
 const isAdmin = asyncHandler(async (req, res, next) => {
+<<<<<<< HEAD
   // assuming your User model has a .role field with values like "user", "admin"
   if (req.user && req.user.role === "admin") {
     return next();
@@ -85,3 +122,15 @@ const isAdmin = asyncHandler(async (req, res, next) => {
 });
 
 module.exports = { authMiddleware, isAdmin };
+=======
+  if (req.user && req.user.isAdmin) {
+    next();
+  } else {
+    res.status(401);
+    throw new Error('Not authorized as an admin');
+  }
+});
+
+module.exports = { authMiddleware, isAdmin };
+*/
+>>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950

@@ -12,4 +12,19 @@ router.get('/', getPrintOrders);
 
 
 
+<<<<<<< HEAD
 module.exports = router;
+=======
+module.exports = router;
+
+
+
+
+
+
+
+
+
+
+
+>>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950

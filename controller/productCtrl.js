@@ -253,6 +253,22 @@ async function deleteFile(path) {
 }
 
 
+<<<<<<< HEAD
+=======
+
+
+
+
+
+
+
+
+
+
+
+
+
+>>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950
 module.exports = {
   createProduct, 
   getaProduct, 
@@ -262,4 +278,9 @@ module.exports = {
   addToWhishlist, 
   rating, 
   
+<<<<<<< HEAD
 };
+=======
+};
+
+>>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950

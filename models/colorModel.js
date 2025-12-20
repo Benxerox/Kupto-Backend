@@ -1,6 +1,12 @@
+<<<<<<< HEAD
 /*const mongoose = require('mongoose'); // Erase if already required
 
 
+=======
+const mongoose = require('mongoose'); // Erase if already required
+
+// Declare the Schema of the Mongo model
+>>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950
 var colorSchema = new mongoose.Schema({
     title:{
         type:String,
@@ -17,6 +23,7 @@ timestamps: true,
 );
 
 //Export the model
+<<<<<<< HEAD
 module.exports = mongoose.model('Color', colorSchema);*/
 
 const mongoose = require("mongoose");
@@ -110,3 +117,6 @@ colorSchema.methods.getDisplay = function () {
 };
 
 module.exports = mongoose.model("Color", colorSchema);
+=======
+module.exports = mongoose.model('Color', colorSchema);
+>>>>>>> 220a54418c24e5c1f12a33f4ad339f9df4094950
