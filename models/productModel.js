@@ -88,15 +88,7 @@ const mongoose = require("mongoose");
 
 const productSchema = new mongoose.Schema(
   {
-    /* =====================
-       BASIC INFO
-    ===================== */
-    title: {
-      type: String,
-      required: true,
-      trim: true,
-      maxlength: 120,
-    },
+    title: { type: String, required: true, trim: true, maxlength: 120 },
 
     slug: {
       type: String,
@@ -104,21 +96,12 @@ const productSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       index: true,
+      trim: true,
     },
 
-    description: {
-      type: String,
-      required: true,
-    },
+    description: { type: String, required: true },
 
-    /* =====================
-       PRICING
-    ===================== */
-    price: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
+    price: { type: Number, required: true, min: 0 },
 
     discountedPrice: {
       type: Number,
@@ -131,80 +114,36 @@ const productSchema = new mongoose.Schema(
       },
     },
 
-    /* =====================
-       CATEGORY & BRAND
-    ===================== */
-    category: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Category",
-      },
-    ],
+    category: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
 
-    brand: {
-      type: String,
-      required: true,
-      trim: true,
-    },
+    // NOTE: Schema says brand is String (store the brand name/title)
+    brand: { type: String, required: true, trim: true },
 
     tags: [{ type: String, trim: true }],
 
-    /* =====================
-       STOCK & ORDERS
-    ===================== */
-    quantity: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
+    quantity: { type: Number, required: true, min: 0 },
 
-    minOrder: {
-      type: Number,
-      default: null,
-      min: 1,
-    },
+    minOrder: { type: Number, default: null, min: 1 },
 
-    maxOrder: {
-      type: Number,
-      default: null,
-    },
+    maxOrder: { type: Number, default: null, min: 1 },
 
-    sold: {
-      type: Number,
-      default: 0,
-    },
+    sold: { type: Number, default: 0 },
 
-    /* =====================
-       PRINTING
-    ===================== */
-    isPrintable: {
-      type: Boolean,
-      default: false,
-    },
+    isPrintable: { type: Boolean, default: false },
 
-    printingPrice: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Pprice",
-    },
+    // ✅ single selectable print type (or null)
+    printingPrice: { type: mongoose.Schema.Types.ObjectId, ref: "Pprice", default: null },
 
     printSpec: {
       allowedExtensions: {
         type: [String],
         default: ["pdf", "png", "jpg", "jpeg", "cdr", "ai"],
       },
-      maxFileSizeMB: {
-        type: Number,
-        default: 50,
-      },
-      instructions: {
-        type: String,
-        default: "",
-      },
+      maxFileSizeMB: { type: Number, default: 50 },
+      instructions: { type: String, default: "", trim: true },
     },
 
-    /* =====================
-       IMAGES
-    ===================== */
+    // default images for the product (fallback)
     images: [
       {
         public_id: { type: String, required: true },
@@ -212,82 +151,81 @@ const productSchema = new mongoose.Schema(
       },
     ],
 
-    /* =====================
-       COLOR VARIANTS (KEY PART)
-    ===================== */
-    hasColorVariants: {
-      type: Boolean,
-      default: false,
-    },
+    // ✅ selectable colors & sizes
+    color: [{ type: mongoose.Schema.Types.ObjectId, ref: "Color", index: true }],
 
-    // same group for same product different colors
-    variantGroup: {
-      type: mongoose.Schema.Types.ObjectId,
-      index: true,
-    },
+    size: [{ type: mongoose.Schema.Types.ObjectId, ref: "Size" }],
 
-    // ONE color per product variant
-    color: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Color",
-      index: true,
-    },
-
-    /* =====================
-       SIZE (optional)
-    ===================== */
-    size: [
+    // ✅ images per color (variant gallery)
+    variantImages: [
       {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Size",
-      },
-    ],
-
-    /* =====================
-       RATINGS
-    ===================== */
-    ratings: [
-      {
-        star: { type: Number, min: 1, max: 5 },
-        comment: { type: String, trim: true },
-        postedBy: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
+        color: { type: mongoose.Schema.Types.ObjectId, ref: "Color", required: true },
+        images: {
+          type: [
+            {
+              public_id: { type: String, required: true },
+              url: { type: String, required: true },
+            },
+          ],
+          default: [],
         },
       },
     ],
 
-    totalrating: {
-      type: Number,
-      default: 0,
-    },
+    ratings: [
+      {
+        star: { type: Number, min: 1, max: 5 },
+        comment: { type: String, trim: true },
+        postedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      },
+    ],
 
-    /* =====================
-       STATUS
-    ===================== */
+    totalrating: { type: Number, default: 0 },
+
     status: {
       type: String,
       enum: ["draft", "active", "archived"],
       default: "active",
+      index: true,
     },
   },
   { timestamps: true }
 );
 
-/* =====================
-   INDEXES
-===================== */
-productSchema.index({ variantGroup: 1, color: 1 });
+/* =========================
+   Indexes
+========================= */
 productSchema.index({ title: "text", description: "text" });
+productSchema.index({ category: 1 });
+productSchema.index({ brand: 1 });
+productSchema.index({ price: 1 });
 
-/* =====================
-   METHODS
-===================== */
-productSchema.methods.getEffectivePrice = function (orderQuantity = 1) {
-  if (this.discountedPrice && orderQuantity >= 500) {
-    return this.discountedPrice;
+/* =========================
+   Guards / cleanup
+   1) variantImages only allowed for colors in product.color
+   2) ensure printingPrice is null if isPrintable is false
+========================= */
+productSchema.pre("validate", function (next) {
+  // keep variantImages consistent with selected colors
+  if (Array.isArray(this.variantImages) && Array.isArray(this.color)) {
+    const allowed = new Set(this.color.map(String));
+
+    this.variantImages = this.variantImages
+      // remove entries whose color isn't in product.color
+      .filter((v) => v?.color && allowed.has(String(v.color)))
+      // optional: remove empty image lists
+      .map((v) => ({
+        ...v,
+        images: Array.isArray(v.images) ? v.images : [],
+      }));
   }
-  return this.price;
-};
+
+  // if not printable -> force printingPrice to null
+  if (!this.isPrintable) {
+    this.printingPrice = null;
+  }
+
+  next();
+});
 
 module.exports = mongoose.model("Product", productSchema);
