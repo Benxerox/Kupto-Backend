@@ -8,19 +8,22 @@ const path = require('path');
 
 
 
-const createProduct = asyncHandler(async(req, res)=> {
+
+const createProduct = asyncHandler(async (req, res) => {
   try {
-    if (req.body.title) {
-      req.body.slug = slugify(req.body.title);
-    }
-    
+    if (req.body.title) req.body.slug = slugify(req.body.title.trim());
+
     const newProduct = await Product.create(req.body);
-    res.json({newProduct});
+    res.status(201).json({ newProduct });
   } catch (error) {
-    console.error('Error creating product:', error); // Add error logging
-    throw new Error(error);
+    console.error("Error creating product:", error);
+
+    res.status(400).json({
+      message: error?.message || "Product creation failed",
+    });
   }
 });
+
 
 const updateProduct = asyncHandler(async (req, res) => {
   const id = req.params.id; 
