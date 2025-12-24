@@ -752,6 +752,28 @@ const getYearlyTotalOrders = asyncHandler(async(req, res)=>{
   res.json(data);
 })
 
+// remove product from wishlist
+const removeProductFromWishlist = asyncHandler(async (req, res) => {
+  const { _id } = req.user;
+  const { prodId } = req.params;
+
+  validateMongoDbId(_id);
+  validateMongoDbId(prodId);
+
+  try {
+    const user = await User.findByIdAndUpdate(
+      _id,
+      { $pull: { wishlist: prodId } }, // ✅ remove from array
+      { new: true }
+    ).populate("wishlist");
+
+    res.json(user);
+  } catch (error) {
+    throw new Error(error);
+  }
+});
+
+
 
 
 
@@ -776,6 +798,7 @@ module.exports = {
   getUserCart,
   createOrder,
   removeProductFromCart,
+  removeProductFromWishlist,
   updateProductQuantityFromCart,
   getMyOrders,
   emptyCart,

@@ -20,6 +20,7 @@ const {
   getUserCart,
   createOrder,
   removeProductFromCart,
+  
   updateProductQuantityFromCart,
   getMyOrders,
   emptyCart,
@@ -27,7 +28,8 @@ const {
   getYearlyTotalOrders,
   getAllOrders,
   getSingleOrders,
-  updateOrder
+  updateOrder,
+  removeProductFromWishlist
 } = require('../controller/userCtrl');
 const {authMiddleware, isAdmin} = require('../middlewares/authMiddleware');
 const { checkout, paymentVerification } = require('../controller/paymentCtrl');
@@ -61,6 +63,7 @@ router.get('/cart', authMiddleware, getUserCart);
 router.get('/:id', authMiddleware, isAdmin ,getaUser);
 router.delete('/empty-cart', authMiddleware, emptyCart);
 router.delete('/delete-product-cart/:cartItemId',authMiddleware, removeProductFromCart);
+router.delete('/wishlist/:prodId',authMiddleware, removeProductFromWishlist);
 router.put('/update-product-cart/:cartItemId/:newQuantity',authMiddleware, updateProductQuantityFromCart);
 
 
