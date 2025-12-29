@@ -27,6 +27,7 @@ const sizeSchema = new mongoose.Schema({
 // Export the model
 module.exports = mongoose.model('Size', sizeSchema);*/
 
+
 const mongoose = require("mongoose");
 
 const sizeSchema = new mongoose.Schema(
@@ -38,7 +39,7 @@ const sizeSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      unique: true, 
+      unique: true,
       // examples: "Small", "A4", "XL", "210 x 297 mm"
     },
 
@@ -53,7 +54,6 @@ const sizeSchema = new mongoose.Schema(
 
     /* =====================
        SIZE TYPE
-       helps filtering & UI
     ===================== */
     type: {
       type: String,
@@ -65,16 +65,8 @@ const sizeSchema = new mongoose.Schema(
     /* =====================
        DIMENSIONS (optional)
     ===================== */
-    width: {
-      type: Number,
-      default: null,
-      // in mm or cm depending on your standard
-    },
-
-    height: {
-      type: Number,
-      default: null,
-    },
+    width: { type: Number, default: null },
+    height: { type: Number, default: null },
 
     unit: {
       type: String,
@@ -83,7 +75,34 @@ const sizeSchema = new mongoose.Schema(
     },
 
     /* =====================
-       PRICE ADJUSTMENT
+       PRICING (optional)
+       Some sizes can have fixed price + discount price
+    ===================== */
+    price: {
+      type: Number,
+      default: null, // when set => overrides basePrice + adjustment
+      min: 0,
+    },
+
+    discountPrice: {
+      type: Number,
+      default: null,
+      min: 0,
+      validate: {
+        validator: function (v) {
+          // allow null
+          if (v === null || v === undefined) return true;
+          // must have a price to compare against
+          if (this.price === null || this.price === undefined) return false;
+          return v < this.price;
+        },
+        message: "discountPrice must be less than price (and price must be set).",
+      },
+    },
+
+    /* =====================
+       PRICE ADJUSTMENT (fallback)
+       Used when `price` is not set
     ===================== */
     priceAdjustment: {
       type: Number,
@@ -103,15 +122,8 @@ const sizeSchema = new mongoose.Schema(
     /* =====================
        VISIBILITY
     ===================== */
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
-
-    sortOrder: {
-      type: Number,
-      default: 0,
-    },
+    isActive: { type: Boolean, default: true },
+    sortOrder: { type: Number, default: 0 },
 
     /* =====================
        METADATA
@@ -121,7 +133,7 @@ const sizeSchema = new mongoose.Schema(
       ref: "User",
     },
   },
-  { timestamps: true }
+  { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } }
 );
 
 /* =====================
@@ -141,11 +153,28 @@ sizeSchema.virtual("label").get(function () {
   return this.name;
 });
 
+// ✅ quick flag for UI: shows if this size has fixed pricing
+sizeSchema.virtual("hasFixedPrice").get(function () {
+  return this.price !== null && this.price !== undefined;
+});
+
 /* =====================
    METHODS
 ===================== */
-sizeSchema.methods.getPrice = function (basePrice) {
-  return basePrice + (this.priceAdjustment || 0);
+/**
+ * Returns effective price for this size:
+ * 1) if discountPrice exists => discountPrice
+ * 2) else if price exists => price
+ * 3) else => basePrice + priceAdjustment
+ */
+sizeSchema.methods.getFinalPrice = function (basePrice = 0) {
+  if (this.discountPrice !== null && this.discountPrice !== undefined) {
+    return this.discountPrice;
+  }
+  if (this.price !== null && this.price !== undefined) {
+    return this.price;
+  }
+  return Number(basePrice || 0) + Number(this.priceAdjustment || 0);
 };
 
 module.exports = mongoose.model("Size", sizeSchema);

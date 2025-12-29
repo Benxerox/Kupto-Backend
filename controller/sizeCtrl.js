@@ -1,86 +1,100 @@
-const Size = require('../models/sizeModel');
-const asyncHandler = require('express-async-handler');
-const slugify = require('slugify');
-const validateMongoDbId = require('../utils/validateMongodbid');
+const Size = require("../models/sizeModel");
+const asyncHandler = require("express-async-handler");
+const slugify = require("slugify");
+const validateMongoDbId = require("../utils/validateMongodbid");
 
-
-
+const toNumberOrNull = (v) => {
+  if (v === "" || v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 const createSize = asyncHandler(async (req, res) => {
-  try {
-    console.log('Received Request Body:', req.body); // Log the received request body
-    
-    // Check if title and price are included
-    if (!req.body.title || req.body.price === undefined) {
-      return res.status(400).json({ message: 'Title and price are required.' });
-    }
+  const body = { ...req.body };
 
-    // Create slug from title
-    req.body.slug = slugify(req.body.title);
-
-    // Log the size object before saving
-    console.log('Size to be created:', req.body);
-
-    // Create a new Size document
-    const newSize = await Size.create(req.body);
-
-    // Log the created size document
-    console.log('Created Size:', newSize);
-
-    // Send the created size back as response
-    res.status(201).json({ newSize });
-  } catch (error) {
-    console.error('Error creating size:', error);
-    res.status(500).json({ error: error.message });
+  // ✅ schema uses `name` (not title)
+  if (!body.name || !String(body.name).trim()) {
+    return res.status(400).json({ message: "name is required." });
   }
-});
 
-const updateSize = asyncHandler(async(req, res)=>{
-  const {id} =  req.params;
-  validateMongoDbId(id);
-  try {
-    const updatedSize = await Size.findByIdAndUpdate(id,req.body,{
-      new: true,
+  // ✅ auto slug (safe)
+  body.slug = slugify(body.name, { lower: true, strict: true });
+
+  // ✅ normalize numeric fields (handles form-data strings)
+  body.price = toNumberOrNull(body.price);
+  body.discountPrice = toNumberOrNull(body.discountPrice);
+  body.priceAdjustment = body.priceAdjustment === undefined ? 0 : Number(body.priceAdjustment || 0);
+  body.width = toNumberOrNull(body.width);
+  body.height = toNumberOrNull(body.height);
+  body.sortOrder = body.sortOrder === undefined ? 0 : Number(body.sortOrder || 0);
+
+  // ✅ if price not provided, discountPrice must not be provided
+  if ((body.price === null || body.price === undefined) && body.discountPrice != null) {
+    return res.status(400).json({
+      message: "discountPrice requires price. Either set price or remove discountPrice.",
     });
-    res.json(updatedSize);
-  } catch (error) {
-    throw new Error (error);
   }
+
+  // ✅ ensure discountPrice < price (extra guard; schema also validates)
+  if (body.price != null && body.discountPrice != null && body.discountPrice >= body.price) {
+    return res.status(400).json({ message: "discountPrice must be less than price." });
+  }
+
+  const newSize = await Size.create(body);
+  res.status(201).json(newSize);
 });
 
-const deleteSize = asyncHandler(async(req, res)=>{
-  const {id} =  req.params;
+const updateSize = asyncHandler(async (req, res) => {
+  const { id } = req.params;
   validateMongoDbId(id);
-  try {
-    const deletedSize = await Size.findByIdAndDelete(id);
-    res.json(deletedSize);
-  } catch (error) {
-    throw new Error (error);
+
+  const body = { ...req.body };
+
+  // ✅ if name changes, update slug
+  if (body.name) {
+    body.slug = slugify(body.name, { lower: true, strict: true });
   }
+
+  // ✅ normalize numbers (important if coming from form inputs)
+  if ("price" in body) body.price = toNumberOrNull(body.price);
+  if ("discountPrice" in body) body.discountPrice = toNumberOrNull(body.discountPrice);
+  if ("priceAdjustment" in body) body.priceAdjustment = Number(body.priceAdjustment || 0);
+  if ("width" in body) body.width = toNumberOrNull(body.width);
+  if ("height" in body) body.height = toNumberOrNull(body.height);
+  if ("sortOrder" in body) body.sortOrder = Number(body.sortOrder || 0);
+
+  // ✅ if price is removed, also remove discountPrice to avoid validation failure
+  if ("price" in body && (body.price === null || body.price === undefined)) {
+    body.discountPrice = null;
+  }
+
+  const updatedSize = await Size.findByIdAndUpdate(id, body, {
+    new: true,
+    runValidators: true, // ✅ important for discountPrice validation
+  });
+
+  res.json(updatedSize);
 });
 
-const getSize = asyncHandler(async(req, res)=>{
-  const {id} =  req.params;
+const deleteSize = asyncHandler(async (req, res) => {
+  const { id } = req.params;
   validateMongoDbId(id);
-  try {
-    const getaSize = await Size.findById(id);
-    res.json(getaSize);
-  } catch (error) {
-    throw new Error (error);
-  }
+
+  const deletedSize = await Size.findByIdAndDelete(id);
+  res.json(deletedSize);
 });
 
+const getSize = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  validateMongoDbId(id);
 
-const getallSize = asyncHandler(async(req, res)=>{
- 
-  try {
-    const getallSize = await Size.find();
-    res.json(getallSize);
-  } catch (error) {
-    throw new Error (error);
-  }
+  const size = await Size.findById(id);
+  res.json(size);
 });
 
+const getallSize = asyncHandler(async (req, res) => {
+  const sizes = await Size.find().sort({ sortOrder: 1, name: 1 });
+  res.json(sizes);
+});
 
-
-module.exports = {createSize, updateSize, deleteSize, getSize, getallSize};
+module.exports = { createSize, updateSize, deleteSize, getSize, getallSize };
