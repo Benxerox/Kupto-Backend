@@ -25,34 +25,57 @@ const createProduct = asyncHandler(async (req, res) => {
 });
 
 
+
+
 const updateProduct = asyncHandler(async (req, res) => {
-  const id = req.params.id; 
+  const id = req.params.id;
   validateMongoDbId(id);
-  
+
   try {
-    // Generate slug if title exists
+    // slug
     if (req.body.title) {
       req.body.slug = slugify(req.body.title.trim());
     }
 
-    // Find and update the product
-    const updateProduct = await Product.findByIdAndUpdate(id, req.body, {
-      new: true,
-      runValidators: true, // Ensure schema validation during update
-    });
-
-    // Check if the product was found and updated
-    if (!updateProduct) {
-      return res.status(404).json({ message: 'Product not found or no changes were made' });
+    // ✅ IMPORTANT: validate discountedPrice vs price correctly for updates
+    const existing = await Product.findById(id).select("price");
+    if (!existing) {
+      return res.status(404).json({ message: "Product not found" });
     }
 
-    // Return success response
-    res.json({ message: 'Product updated successfully', data: updateProduct });
+    const nextPrice =
+      req.body.price !== undefined && req.body.price !== null && req.body.price !== ""
+        ? Number(req.body.price)
+        : Number(existing.price);
+
+    const nextDiscount =
+      req.body.discountedPrice !== undefined && req.body.discountedPrice !== null && req.body.discountedPrice !== ""
+        ? Number(req.body.discountedPrice)
+        : null;
+
+    if (nextDiscount !== null && Number.isFinite(nextDiscount) && nextDiscount > nextPrice) {
+      return res.status(400).json({
+        message: "Discounted price cannot be higher than price",
+      });
+    }
+
+    // ✅ update
+    const updated = await Product.findByIdAndUpdate(id, req.body, {
+      new: true,
+      runValidators: true,
+      context: "query", // ✅ helps with update validators
+    });
+
+    return res.json({ message: "Product updated successfully", data: updated });
   } catch (error) {
     console.error(`Error updating product with ID ${id}:`, error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    return res.status(500).json({
+      message: "Internal Server Error",
+      error: error.message,
+    });
   }
 });
+
 
 
 
