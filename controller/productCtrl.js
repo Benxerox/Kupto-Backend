@@ -1,69 +1,110 @@
-const Product = require('../models/productModel');
-const asyncHandler = require('express-async-handler');
-const slugify = require('slugify');
-const validateMongoDbId = require('../utils/validateMongodbid');
-const User = require('../models/userModel');
-const path = require('path');
+// controllers/productCtrl.js
+const Product = require("../models/productModel");
+const asyncHandler = require("express-async-handler");
+const slugify = require("slugify");
+const validateMongoDbId = require("../utils/validateMongodbid");
+const User = require("../models/userModel");
 
+/* =========================================
+   Helpers
+========================================= */
+const toNumberOrNull = (v) => {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : NaN; // keep NaN to detect invalid numbers
+};
 
-
-
-
+/* =========================================
+   CREATE PRODUCT
+   - generate slug
+   - validate discountedPrice <= price
+========================================= */
 const createProduct = asyncHandler(async (req, res) => {
   try {
     if (req.body.title) req.body.slug = slugify(req.body.title.trim());
 
+    // ✅ validate discountedPrice vs price (create)
+    const priceNum = toNumberOrNull(req.body.price);
+    const discountNum = toNumberOrNull(req.body.discountedPrice);
+
+    if (Number.isNaN(priceNum)) {
+      return res.status(400).json({ message: "Invalid price" });
+    }
+    if (Number.isNaN(discountNum)) {
+      return res.status(400).json({ message: "Invalid discounted price" });
+    }
+    if (discountNum !== null && discountNum > priceNum) {
+      return res
+        .status(400)
+        .json({ message: "Discounted price cannot be higher than price" });
+    }
+
     const newProduct = await Product.create(req.body);
-    res.status(201).json({ newProduct });
+    return res.status(201).json({ newProduct });
   } catch (error) {
     console.error("Error creating product:", error);
-
-    res.status(400).json({
+    return res.status(400).json({
       message: error?.message || "Product creation failed",
+      error: error?.message,
     });
   }
 });
 
-
-
-
+/* =========================================
+   UPDATE PRODUCT
+   - generate slug
+   - validate discountedPrice <= price correctly (even if only one is sent)
+   - reject NaN
+========================================= */
 const updateProduct = asyncHandler(async (req, res) => {
   const id = req.params.id;
   validateMongoDbId(id);
 
   try {
-    // slug
-    if (req.body.title) {
-      req.body.slug = slugify(req.body.title.trim());
-    }
+    if (req.body.title) req.body.slug = slugify(req.body.title.trim());
 
-    // ✅ IMPORTANT: validate discountedPrice vs price correctly for updates
-    const existing = await Product.findById(id).select("price");
-    if (!existing) {
-      return res.status(404).json({ message: "Product not found" });
-    }
+    // ✅ fetch existing so we can compare against current values
+    const existing = await Product.findById(id).select("price discountedPrice");
+    if (!existing) return res.status(404).json({ message: "Product not found" });
 
+    // nextPrice: body.price if provided else existing.price
     const nextPrice =
       req.body.price !== undefined && req.body.price !== null && req.body.price !== ""
-        ? Number(req.body.price)
+        ? toNumberOrNull(req.body.price)
         : Number(existing.price);
 
-    const nextDiscount =
-      req.body.discountedPrice !== undefined && req.body.discountedPrice !== null && req.body.discountedPrice !== ""
-        ? Number(req.body.discountedPrice)
-        : null;
-
-    if (nextDiscount !== null && Number.isFinite(nextDiscount) && nextDiscount > nextPrice) {
-      return res.status(400).json({
-        message: "Discounted price cannot be higher than price",
-      });
+    if (Number.isNaN(nextPrice)) {
+      return res.status(400).json({ message: "Invalid price" });
     }
 
-    // ✅ update
+    // nextDiscount:
+    // - if discountedPrice NOT sent -> keep existing discountedPrice
+    // - if sent as "" or null -> set null
+    // - else convert to number
+    let nextDiscount = existing.discountedPrice ?? null;
+
+    if (req.body.discountedPrice !== undefined) {
+      if (req.body.discountedPrice === "" || req.body.discountedPrice === null) {
+        nextDiscount = null;
+      } else {
+        nextDiscount = toNumberOrNull(req.body.discountedPrice);
+      }
+    }
+
+    if (Number.isNaN(nextDiscount)) {
+      return res.status(400).json({ message: "Invalid discounted price" });
+    }
+
+    if (nextDiscount !== null && nextDiscount > nextPrice) {
+      return res
+        .status(400)
+        .json({ message: "Discounted price cannot be higher than price" });
+    }
+
     const updated = await Product.findByIdAndUpdate(id, req.body, {
       new: true,
       runValidators: true,
-      context: "query", // ✅ helps with update validators
+      context: "query", // ok to keep
     });
 
     return res.json({ message: "Product updated successfully", data: updated });
@@ -76,100 +117,89 @@ const updateProduct = asyncHandler(async (req, res) => {
   }
 });
 
-
-
-
-
+/* =========================================
+   DELETE PRODUCT
+========================================= */
 const deleteProduct = asyncHandler(async (req, res) => {
-  const id = req.params.id; 
+  const id = req.params.id;
   validateMongoDbId(id);
+
   try {
     const deletedProduct = await Product.findByIdAndDelete(id);
-    
     if (!deletedProduct) {
-      return res.status(404).json({ message: 'Product not found' });
+      return res.status(404).json({ message: "Product not found" });
     }
-    res.json({ message: 'Product deleted successfully', data: deletedProduct });
+    return res.json({ message: "Product deleted successfully", data: deletedProduct });
   } catch (error) {
-    console.error('Error deleting product:', error);
-    res.status(500).json({ error: 'Internal Server Error', details: error.message });
+    console.error("Error deleting product:", error);
+    return res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 });
 
-
-
-
-const getaProduct = asyncHandler(async(req, res)=>{
-  const {id} = req.params;
+/* =========================================
+   GET A PRODUCT
+========================================= */
+const getaProduct = asyncHandler(async (req, res) => {
+  const { id } = req.params;
   validateMongoDbId(id);
-  try {
-    const findProduct = await Product.findById(id)
-    .populate('color')
-    .populate('size')
-    .populate('category');
-    res.json(findProduct);
-  } catch (error) {
-    throw new Error(error)
-  }
+
+  const findProduct = await Product.findById(id)
+    .populate("color")
+    .populate("size")
+    .populate("category");
+
+  return res.json(findProduct);
 });
 
-
-
-
-
-
-
+/* =========================================
+   GET ALL PRODUCTS
+========================================= */
 const getAllProduct = asyncHandler(async (req, res) => {
-  try {
-    //filtering
-    const queryObj = { ...req.query };
-    const excludeFields = ['page', 'sort', 'limit', 'fields'];
-    excludeFields.forEach(el => delete queryObj[el]);
-    
-    let queryStr = JSON.stringify(queryObj);
-    queryStr = queryStr.replace(/\b(gte|gt|lte|lt)\b/g, match => `$${match}`);
-    
-    let query = Product.find(JSON.parse(queryStr));
+  // filtering
+  const queryObj = { ...req.query };
+  const excludeFields = ["page", "sort", "limit", "fields"];
+  excludeFields.forEach((el) => delete queryObj[el]);
 
-    // Sorting
-   
-    if (req.query.sort) {
-      const sortBy = req.query.sort.split(',').join(' ');
-      query = query.sort(sortBy);
-    } else {
-      query = query.sort('-createdAt');
-    }
+  let queryStr = JSON.stringify(queryObj);
+  queryStr = queryStr.replace(/\b(gte|gt|lte|lt)\b/g, (match) => `$${match}`);
 
-    // Limiting the fields
-    if (req.query.fields) {
-      const fields = req.query.fields.split(',').join(' ');
-      query = query.select(fields);
-    } else {
-      query = query.select('-__v');
-    }
+  let query = Product.find(JSON.parse(queryStr));
 
-    //Pagination
-
-    const page = req.query.page;
-    const limit = req.query.limit;
-    const skip = (page-1)* limit;
-    query = query.skip(skip).limit(limit);
-    if(req.query.page) {
-      const productCount = await Product.countDocuments();
-      if (skip>=productCount) throw new Error('This Page does not exist');
-    }
-    
-
-
-    const product = await query;
-    res.json(product);
-  } catch (error) {
-    throw new Error(error);
+  // sorting
+  if (req.query.sort) {
+    const sortBy = req.query.sort.split(",").join(" ");
+    query = query.sort(sortBy);
+  } else {
+    query = query.sort("-createdAt");
   }
+
+  // limiting fields
+  if (req.query.fields) {
+    const fields = req.query.fields.split(",").join(" ");
+    query = query.select(fields);
+  } else {
+    query = query.select("-__v");
+  }
+
+  // pagination
+  const page = Number(req.query.page || 1);
+  const limit = Number(req.query.limit || 100);
+  const skip = (page - 1) * limit;
+
+  query = query.skip(skip).limit(limit);
+
+  if (req.query.page) {
+    const productCount = await Product.countDocuments();
+    if (skip >= productCount) throw new Error("This Page does not exist");
+  }
+
+  const product = await query;
+  return res.json(product);
 });
 
-
-
+/* =========================================
+   ADD TO WISHLIST
+========================================= */
 const addToWhishlist = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   const { prodId } = req.body;
@@ -177,115 +207,71 @@ const addToWhishlist = asyncHandler(async (req, res) => {
   try {
     const user = await User.findById(_id);
     const alreadyAdded = user.wishlist.find((id) => id.toString() === prodId);
-    let updatedUser;
-    if (alreadyAdded) {
-      updatedUser = await User.findByIdAndUpdate(
-        _id,
-        { $pull: { wishlist: prodId } },
-        { new: true }
-      );
-    } else {
-      updatedUser = await User.findByIdAndUpdate(
-        _id,
-        { $push: { wishlist: prodId } },
-        { new: true }
-      );
-    }
-    res.json(updatedUser);
+
+    const updatedUser = alreadyAdded
+      ? await User.findByIdAndUpdate(_id, { $pull: { wishlist: prodId } }, { new: true })
+      : await User.findByIdAndUpdate(_id, { $push: { wishlist: prodId } }, { new: true });
+
+    return res.json(updatedUser);
   } catch (error) {
-    res.status(500).json({ message: 'Error adding to wishlist', error: error.message });
+    return res.status(500).json({ message: "Error adding to wishlist", error: error.message });
   }
 });
 
-
-
+/* =========================================
+   RATING
+========================================= */
 const rating = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   const { star, prodId, comment } = req.body;
-  try {
-    const product = await Product.findById(prodId);
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-    const alreadyRated = product.ratings.find(
-      (rating) => rating.postedBy.toString() === _id.toString()
-    );
-    if (alreadyRated) {
-      // Update existing rating
-      const updateRating = await Product.updateOne(
-        {
-          'ratings.postedBy': _id,
-          _id: prodId
-        },
-        {
-          $set: { 'ratings.$.star': star, 'ratings.$.comment': comment }
-        },
-        {
-          new: true
-        }
-      );
-     
-    } else {
-      // Add new rating
-      const rateProduct = await Product.findByIdAndUpdate(
-        prodId,
-        {
-          $push: {
-            ratings: {
-              star: star,
-              comment: comment,
-              postedBy: _id
-            }
-          }
-        },
-        {
-          new: true
-        }
-      );
-      
-    }
-    const getallratings = await Product.findById(prodId);
-    let totalRating = getallratings.ratings.length;
-    let ratingsum = getallratings.ratings.map((item)=>item.star).reduce((prev, curr)=>prev + curr, 0);
-    let actualRating  = Math.round(ratingsum / totalRating);
-    let finalproduct = await Product.findByIdAndUpdate(prodId, {
-      totalrating: actualRating,
-    }, {new: true}
+
+  const product = await Product.findById(prodId);
+  if (!product) return res.status(404).json({ error: "Product not found" });
+
+  const alreadyRated = product.ratings.find(
+    (r) => r.postedBy.toString() === _id.toString()
   );
-  return res.json(finalproduct);
-  } catch (error) {
-    throw new Error(error);
+
+  if (alreadyRated) {
+    await Product.updateOne(
+      { "ratings.postedBy": _id, _id: prodId },
+      { $set: { "ratings.$.star": star, "ratings.$.comment": comment } }
+    );
+  } else {
+    await Product.findByIdAndUpdate(
+      prodId,
+      {
+        $push: {
+          ratings: { star, comment, postedBy: _id },
+        },
+      },
+      { new: true }
+    );
   }
+
+  const getallratings = await Product.findById(prodId);
+  const totalRating = getallratings.ratings.length;
+  const ratingsum = getallratings.ratings
+    .map((item) => item.star)
+    .reduce((prev, curr) => prev + curr, 0);
+
+  const actualRating = Math.round(ratingsum / totalRating);
+
+  const finalproduct = await Product.findByIdAndUpdate(
+    prodId,
+    { totalrating: actualRating },
+    { new: true }
+  );
+
+  return res.json(finalproduct);
 });
 
-
-// Function to delete a file from a directory with proper error handling
-async function deleteFile(path) {
-  try {
-    await fs.chmod(path, 0o666); // Change file permissions
-    await fs.unlink(path); // Delete the file
-    
-  } catch (fsError) {
-    console.error(`Error handling file ${path}:`, fsError);
-
-    // Log additional details about the file
-    try {
-      const fileStats = await fs.stat(path);
-      console.error(`File stats: ${JSON.stringify(fileStats)}`);
-    } catch (statError) {
-      console.error(`Error retrieving stats for file ${path}:`, statError);
-    }
-  }
-}
-
-
 module.exports = {
-  createProduct, 
-  getaProduct, 
-  getAllProduct, 
-  updateProduct, 
-  deleteProduct, 
-  addToWhishlist, 
-  rating, 
-  
+  createProduct,
+  getaProduct,
+  getAllProduct,
+  updateProduct,
+  deleteProduct,
+  addToWhishlist,
+  rating,
 };

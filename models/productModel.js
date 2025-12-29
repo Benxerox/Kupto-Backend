@@ -18,16 +18,12 @@ const productSchema = new mongoose.Schema(
 
     price: { type: Number, required: true, min: 0 },
 
-    discountedPrice: {
+      discountedPrice: {
       type: Number,
       default: null,
-      validate: {
-        validator: function (v) {
-          return v === null || v <= this.price;
-        },
-        message: "Discounted price cannot be higher than price",
-      },
+      min: 0,
     },
+
 
     category: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
 
