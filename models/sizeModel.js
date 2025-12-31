@@ -1,3 +1,4 @@
+// models/sizeModel.js
 const mongoose = require("mongoose");
 
 const sizeSchema = new mongoose.Schema(
@@ -44,11 +45,11 @@ const sizeSchema = new mongoose.Schema(
     },
 
     /* =====================
-       PRICING
-       - price: current price for this size (preferred)
-       - discountPrice: optional discounted price (must be < price)
-       - discountMinQty: optional threshold (apply discount only when qty >= this)
-       - priceAdjustment: fallback when price is not set
+       PRICING (UPDATED)
+       ✅ Fix: allow discountPrice/discountMinQty even when price is NULL.
+       - If price exists: discountPrice must be < price.
+       - If price is NULL: discountPrice is treated as an absolute fixed price.
+       - discountMinQty requires discountPrice.
     ===================== */
     price: {
       type: Number,
@@ -64,13 +65,15 @@ const sizeSchema = new mongoose.Schema(
         validator: function (v) {
           if (v === null || v === undefined) return true;
 
-          // must have a base price if discount is set
-          if (this.price === null || this.price === undefined) return false;
+          // if price is set, enforce discountPrice < price
+          if (this.price !== null && this.price !== undefined) {
+            return Number(v) < Number(this.price);
+          }
 
-          // discount must be less than price
-          return Number(v) < Number(this.price);
+          // if price is NOT set, allow discountPrice (treat as absolute)
+          return true;
         },
-        message: "discountPrice must be less than price (and price must be set).",
+        message: "discountPrice must be less than price (when price is set).",
       },
     },
 
@@ -84,7 +87,7 @@ const sizeSchema = new mongoose.Schema(
         validator: function (v) {
           if (v === null || v === undefined) return true;
 
-          // if you set a min qty, you should set a discount price too
+          // if you set a min qty, you must set a discount price too
           return this.discountPrice !== null && this.discountPrice !== undefined;
         },
         message: "discountMinQty requires discountPrice to be set.",
@@ -136,7 +139,6 @@ sizeSchema.index({ isActive: 1, sortOrder: 1 });
    VIRTUALS
 ===================== */
 sizeSchema.virtual("label").get(function () {
-  // If you store dimensions, label becomes like "420 x 594 mm"
   if (this.width && this.height) return `${this.width} x ${this.height} ${this.unit}`;
   return this.name;
 });
@@ -150,6 +152,7 @@ sizeSchema.virtual("hasFixedPrice").get(function () {
 ===================== */
 /**
  * Returns CURRENT price for this size (NO quantity logic here):
+ * Priority:
  * 1) if price exists => price
  * 2) else => basePrice + priceAdjustment
  */
@@ -162,6 +165,8 @@ sizeSchema.methods.getCurrentPrice = function (basePrice = 0) {
  * Returns price based on quantity:
  * - if discountPrice + discountMinQty exist and qty >= discountMinQty => discountPrice
  * - else => current price (price or base+adjustment)
+ *
+ * NOTE: discountPrice is treated as absolute final price (not computed).
  */
 sizeSchema.methods.getPriceByQty = function (qty = 1, basePrice = 0) {
   const q = Math.max(1, Number(qty || 1));
