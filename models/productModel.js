@@ -1,4 +1,4 @@
-
+// models/productModel.js
 const mongoose = require("mongoose");
 
 const productSchema = new mongoose.Schema(
@@ -16,18 +16,16 @@ const productSchema = new mongoose.Schema(
 
     description: { type: String, required: true },
 
+    // base product price
     price: { type: Number, required: true, min: 0 },
 
-      discountedPrice: {
-      type: Number,
-      default: null,
-      min: 0,
-    },
-
+    // ✅ product-level sale/old price (optional)
+    // - In your UI you treat this as "oldPrice" (shown only if > price)
+    discountedPrice: { type: Number, default: null, min: 0 },
 
     category: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
 
-    // NOTE: Schema says brand is String (store the brand name/title)
+    // store brand name/title
     brand: { type: String, required: true, trim: true },
 
     tags: [{ type: String, trim: true }],
@@ -35,7 +33,6 @@ const productSchema = new mongoose.Schema(
     quantity: { type: Number, required: true, min: 0 },
 
     minOrder: { type: Number, default: null, min: 1 },
-
     maxOrder: { type: Number, default: null, min: 1 },
 
     sold: { type: Number, default: 0 },
@@ -43,7 +40,17 @@ const productSchema = new mongoose.Schema(
     isPrintable: { type: Boolean, default: false },
 
     // ✅ single selectable print type (or null)
-    printingPrice: { type: mongoose.Schema.Types.ObjectId, ref: "Pprice", default: null },
+    printingPrice: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Pprice",
+      default: null,
+    },
+
+    /**
+     * ✅ IMPORTANT:
+     * Bulk discount is handled on the Size model (size.discountPrice + size.discountMinQty)
+     * So we REMOVE product.discountMinQty here (it was invalid: referenced getVal/discountPrice).
+     */
 
     printSpec: {
       allowedExtensions: {
@@ -62,15 +69,18 @@ const productSchema = new mongoose.Schema(
       },
     ],
 
-    // ✅ selectable colors & sizes
+    // selectable colors & sizes
     color: [{ type: mongoose.Schema.Types.ObjectId, ref: "Color", index: true }],
-
     size: [{ type: mongoose.Schema.Types.ObjectId, ref: "Size" }],
 
-    // ✅ images per color (variant gallery)
+    // images per color (variant gallery)
     variantImages: [
       {
-        color: { type: mongoose.Schema.Types.ObjectId, ref: "Color", required: true },
+        color: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Color",
+          required: true,
+        },
         images: {
           type: [
             {
@@ -122,9 +132,7 @@ productSchema.pre("validate", function (next) {
     const allowed = new Set(this.color.map(String));
 
     this.variantImages = this.variantImages
-      // remove entries whose color isn't in product.color
       .filter((v) => v?.color && allowed.has(String(v.color)))
-      // optional: remove empty image lists
       .map((v) => ({
         ...v,
         images: Array.isArray(v.images) ? v.images : [],

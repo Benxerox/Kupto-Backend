@@ -1,4 +1,5 @@
 // controllers/productCtrl.js
+const mongoose = require("mongoose");
 const Product = require("../models/productModel");
 const asyncHandler = require("express-async-handler");
 const slugify = require("slugify");
@@ -14,14 +15,18 @@ const toNumberOrNull = (v) => {
   return Number.isFinite(n) ? n : NaN; // keep NaN to detect invalid numbers
 };
 
+const makeSlug = (title) =>
+  slugify(String(title || "").trim(), { lower: true, strict: true });
+
 /* =========================================
    CREATE PRODUCT
    - generate slug
    - validate discountedPrice <= price
+   - optional: guard slug uniqueness
 ========================================= */
 const createProduct = asyncHandler(async (req, res) => {
   try {
-    if (req.body.title) req.body.slug = slugify(req.body.title.trim());
+    if (req.body.title) req.body.slug = makeSlug(req.body.title);
 
     // ✅ validate discountedPrice vs price (create)
     const priceNum = toNumberOrNull(req.body.price);
@@ -37,6 +42,14 @@ const createProduct = asyncHandler(async (req, res) => {
       return res
         .status(400)
         .json({ message: "Discounted price cannot be higher than price" });
+    }
+
+    // ✅ optional: slug uniqueness check (helps give nicer error than Mongo duplicate key)
+    if (req.body.slug) {
+      const exists = await Product.findOne({ slug: req.body.slug }).select("_id");
+      if (exists) {
+        return res.status(400).json({ message: "Slug already exists. Change product title." });
+      }
     }
 
     const newProduct = await Product.create(req.body);
@@ -55,17 +68,26 @@ const createProduct = asyncHandler(async (req, res) => {
    - generate slug
    - validate discountedPrice <= price correctly (even if only one is sent)
    - reject NaN
+   - guard slug uniqueness
 ========================================= */
 const updateProduct = asyncHandler(async (req, res) => {
   const id = req.params.id;
   validateMongoDbId(id);
 
   try {
-    if (req.body.title) req.body.slug = slugify(req.body.title.trim());
+    if (req.body.title) req.body.slug = makeSlug(req.body.title);
 
     // ✅ fetch existing so we can compare against current values
-    const existing = await Product.findById(id).select("price discountedPrice");
+    const existing = await Product.findById(id).select("price discountedPrice slug");
     if (!existing) return res.status(404).json({ message: "Product not found" });
+
+    // ✅ slug uniqueness if changing
+    if (req.body.slug && req.body.slug !== existing.slug) {
+      const exists = await Product.findOne({ slug: req.body.slug, _id: { $ne: id } }).select("_id");
+      if (exists) {
+        return res.status(400).json({ message: "Slug already exists. Change product title." });
+      }
+    }
 
     // nextPrice: body.price if provided else existing.price
     const nextPrice =
@@ -104,7 +126,7 @@ const updateProduct = asyncHandler(async (req, res) => {
     const updated = await Product.findByIdAndUpdate(id, req.body, {
       new: true,
       runValidators: true,
-      context: "query", // ok to keep
+      context: "query",
     });
 
     return res.json({ message: "Product updated successfully", data: updated });
@@ -137,16 +159,20 @@ const deleteProduct = asyncHandler(async (req, res) => {
 });
 
 /* =========================================
-   GET A PRODUCT
+   GET A PRODUCT (supports id OR slug)
 ========================================= */
 const getaProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  validateMongoDbId(id);
 
-  const findProduct = await Product.findById(id)
+  const isMongoId = mongoose.Types.ObjectId.isValid(id);
+  const query = isMongoId ? { _id: id } : { slug: id };
+
+  const findProduct = await Product.findOne(query)
     .populate("color")
     .populate("size")
     .populate("category");
+
+  if (!findProduct) return res.status(404).json({ message: "Product not found" });
 
   return res.json(findProduct);
 });
