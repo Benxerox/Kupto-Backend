@@ -22,14 +22,21 @@ const pickNested = (obj, path) => {
   }
 };
 
+const isPresent = (v) => v !== null && v !== undefined;
+
 /**
  * Validate pricing rules for:
- * - price / discountedPrice
- * - bulkDiscount.minQty / bulkDiscount.price (optional)
- * - minOrder / maxOrder (optional)
+ * - price / discountedPrice / discountMinQty
+ * - bulkDiscount.minQty / bulkDiscount.price
+ * - minOrder / maxOrder
+ *
+ * NOTE:
+ * discountedPrice = SALE unit price (must be < price)
  */
 const validatePricingPayload = ({ body, existing }) => {
+  // -----------------------
   // price
+  // -----------------------
   const nextPrice =
     body.price !== undefined && body.price !== null && body.price !== ""
       ? toNumberOrNull(body.price)
@@ -38,23 +45,49 @@ const validatePricingPayload = ({ body, existing }) => {
       : toNumberOrNull(body.price);
 
   if (Number.isNaN(nextPrice)) return { ok: false, message: "Invalid price" };
+  if (nextPrice < 0) return { ok: false, message: "Price must be >= 0" };
 
-  // discountedPrice (old price)
+  // -----------------------
+  // discountedPrice (SALE price)
+  // -----------------------
   let nextDiscounted = existing?.discountedPrice ?? null;
+
   if (body.discountedPrice !== undefined) {
     if (body.discountedPrice === "" || body.discountedPrice === null) nextDiscounted = null;
     else nextDiscounted = toNumberOrNull(body.discountedPrice);
   }
 
-  if (Number.isNaN(nextDiscounted)) return { ok: false, message: "Invalid discounted price" };
+  if (Number.isNaN(nextDiscounted)) return { ok: false, message: "Invalid discountedPrice" };
+  if (nextDiscounted !== null && nextDiscounted < 0)
+    return { ok: false, message: "discountedPrice must be >= 0" };
 
-  // Your rule: discountedPrice is "old price", so it must NOT be lower than current.
-  // ✅ old price must be >= current (or null)
-  if (nextDiscounted !== null && nextDiscounted < nextPrice) {
-    return { ok: false, message: "Discounted price (old price) cannot be lower than price" };
+  // ✅ SALE price rule: discountedPrice must be < price
+  if (nextDiscounted !== null && !(Number(nextDiscounted) < Number(nextPrice))) {
+    return { ok: false, message: "discountedPrice must be less than price" };
   }
 
-  // bulkDiscount
+  // -----------------------
+  // discountMinQty (threshold for discountedPrice)
+  // -----------------------
+  let nextDiscountMinQty = existing?.discountMinQty ?? null;
+
+  if (body.discountMinQty !== undefined) {
+    if (body.discountMinQty === "" || body.discountMinQty === null) nextDiscountMinQty = null;
+    else nextDiscountMinQty = toNumberOrNull(body.discountMinQty);
+  }
+
+  if (Number.isNaN(nextDiscountMinQty)) return { ok: false, message: "Invalid discountMinQty" };
+  if (nextDiscountMinQty !== null && nextDiscountMinQty < 1)
+    return { ok: false, message: "discountMinQty must be >= 1" };
+
+  // ✅ if discountMinQty is set, discountedPrice MUST be set
+  if (nextDiscountMinQty !== null && (nextDiscounted === null || nextDiscounted === undefined)) {
+    return { ok: false, message: "discountMinQty requires discountedPrice to be set" };
+  }
+
+  // -----------------------
+  // bulkDiscount (minQty + price together)
+  // -----------------------
   const bdMinRaw =
     pickNested(body, "bulkDiscount.minQty") !== undefined
       ? pickNested(body, "bulkDiscount.minQty")
@@ -69,33 +102,48 @@ const validatePricingPayload = ({ body, existing }) => {
       ? existing?.bulkDiscount?.price
       : undefined;
 
-  const bdMin = bdMinRaw === "" ? null : bdMinRaw === undefined ? null : toNumberOrNull(bdMinRaw);
-  const bdPrice = bdPriceRaw === "" ? null : bdPriceRaw === undefined ? null : toNumberOrNull(bdPriceRaw);
+  const bdMin =
+    bdMinRaw === "" || bdMinRaw === undefined || bdMinRaw === null ? null : toNumberOrNull(bdMinRaw);
+  const bdPrice =
+    bdPriceRaw === "" || bdPriceRaw === undefined || bdPriceRaw === null
+      ? null
+      : toNumberOrNull(bdPriceRaw);
 
   if (Number.isNaN(bdMin)) return { ok: false, message: "Invalid bulkDiscount.minQty" };
   if (Number.isNaN(bdPrice)) return { ok: false, message: "Invalid bulkDiscount.price" };
 
-  const hasMin = bdMin !== null && bdMin !== undefined;
-  const hasPrice = bdPrice !== null && bdPrice !== undefined;
+  const hasBdMin = isPresent(bdMin);
+  const hasBdPrice = isPresent(bdPrice);
 
   // if one is set, require the other
-  if (hasMin !== hasPrice) {
+  if (hasBdMin !== hasBdPrice) {
     return { ok: false, message: "bulkDiscount requires BOTH minQty and price" };
   }
 
-  if (hasMin && hasPrice) {
+  if (hasBdMin && hasBdPrice) {
     if (bdMin < 1) return { ok: false, message: "bulkDiscount.minQty must be >= 1" };
     if (bdPrice < 0) return { ok: false, message: "bulkDiscount.price must be >= 0" };
-    if (bdPrice > nextPrice) {
-      return { ok: false, message: "bulkDiscount.price cannot be higher than price" };
+    if (Number(bdPrice) > Number(nextPrice)) {
+      return { ok: false, message: "bulkDiscount.price must be <= price" };
     }
   }
 
+  // -----------------------
   // minOrder / maxOrder
+  // -----------------------
   const nextMinOrder =
-    body.minOrder !== undefined ? (body.minOrder === "" ? null : toNumberOrNull(body.minOrder)) : existing?.minOrder ?? null;
+    body.minOrder !== undefined
+      ? body.minOrder === "" || body.minOrder === null
+        ? null
+        : toNumberOrNull(body.minOrder)
+      : existing?.minOrder ?? null;
+
   const nextMaxOrder =
-    body.maxOrder !== undefined ? (body.maxOrder === "" ? null : toNumberOrNull(body.maxOrder)) : existing?.maxOrder ?? null;
+    body.maxOrder !== undefined
+      ? body.maxOrder === "" || body.maxOrder === null
+        ? null
+        : toNumberOrNull(body.maxOrder)
+      : existing?.maxOrder ?? null;
 
   if (Number.isNaN(nextMinOrder)) return { ok: false, message: "Invalid minOrder" };
   if (Number.isNaN(nextMaxOrder)) return { ok: false, message: "Invalid maxOrder" };
@@ -107,7 +155,16 @@ const validatePricingPayload = ({ body, existing }) => {
     return { ok: false, message: "maxOrder must be greater than or equal to minOrder" };
   }
 
-  return { ok: true, nextPrice, nextDiscounted, bdMin, bdPrice, nextMinOrder, nextMaxOrder };
+  return {
+    ok: true,
+    nextPrice,
+    nextDiscounted,
+    nextDiscountMinQty,
+    bdMin,
+    bdPrice,
+    nextMinOrder,
+    nextMaxOrder,
+  };
 };
 
 /* =========================================
@@ -141,7 +198,9 @@ const updateProduct = asyncHandler(async (req, res) => {
   try {
     if (req.body.title) req.body.slug = slugify(req.body.title.trim());
 
-    const existing = await Product.findById(id).select("price discountedPrice minOrder maxOrder bulkDiscount");
+    const existing = await Product.findById(id).select(
+      "price discountedPrice discountMinQty minOrder maxOrder bulkDiscount"
+    );
     if (!existing) return res.status(404).json({ message: "Product not found" });
 
     const check = validatePricingPayload({ body: req.body, existing });
@@ -252,7 +311,7 @@ const addToWhishlist = asyncHandler(async (req, res) => {
 
 /* =========================================
    RATING
-   ✅ store average as decimal (1 decimal) instead of Math.round
+   ✅ store average as decimal (1 decimal)
 ========================================= */
 const rating = asyncHandler(async (req, res) => {
   const { _id } = req.user;
@@ -281,7 +340,7 @@ const rating = asyncHandler(async (req, res) => {
   const sum = refreshed.ratings.reduce((acc, r) => acc + (Number(r.star) || 0), 0);
 
   const avg = total ? sum / total : 0;
-  const avg1 = Math.round(avg * 10) / 10; // ✅ 1 decimal
+  const avg1 = Math.round(avg * 10) / 10;
 
   const finalproduct = await Product.findByIdAndUpdate(
     prodId,

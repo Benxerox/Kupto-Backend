@@ -1,6 +1,39 @@
 // models/productModel.js
 const mongoose = require("mongoose");
 
+/**
+ * Helpers to make validators work on BOTH:
+ * - Document validation (this.price, this.discountedPrice)
+ * - Query update validation (this.getUpdate().price, $set.price, etc.)
+ */
+const getUpdate = (ctx) => {
+  if (!ctx || typeof ctx.getUpdate !== "function") return null;
+  return ctx.getUpdate() || null;
+};
+
+const getVal = (ctx, field) => {
+  // 1) Document context
+  if (ctx && Object.prototype.hasOwnProperty.call(ctx, field)) return ctx[field];
+
+  // 2) Query/update context
+  const u = getUpdate(ctx);
+  if (!u) return undefined;
+
+  // direct
+  if (Object.prototype.hasOwnProperty.call(u, field)) return u[field];
+
+  // $set / $setOnInsert
+  if (u.$set && Object.prototype.hasOwnProperty.call(u.$set, field)) return u.$set[field];
+  if (u.$setOnInsert && Object.prototype.hasOwnProperty.call(u.$setOnInsert, field))
+    return u.$setOnInsert[field];
+
+  return undefined;
+};
+
+/* =========================
+   Bulk discount sub-schema
+   (matches your admin UI)
+========================= */
 const bulkDiscountSchema = new mongoose.Schema(
   {
     // qty at which bulk discount starts (example: 1000)
@@ -27,17 +60,60 @@ const productSchema = new mongoose.Schema(
 
     description: { type: String, required: true },
 
-    // ✅ base unit price (current)
+    /* =========================
+       PRICING
+       - price = base (normal) unit price
+       - discountedPrice = SALE unit price (lower than price)
+       - discountMinQty = qty at which discountedPrice activates
+       - bulkDiscount = another qty based pricing (like UI "Bulk Min Qty / Bulk Unit Price")
+    ========================= */
+
+    // ✅ base unit price (normal price)
     price: { type: Number, required: true, min: 0 },
 
-    /**
-     * ✅ optional "old price" for UI strike-through
-     * show it only if discountedPrice > price
-     */
-    discountedPrice: { type: Number, default: null, min: 0 },
+    // ✅ SALE unit price (like sizeModel.discountPrice)
+    discountedPrice: {
+      type: Number,
+      default: null,
+      min: 0,
+      validate: {
+        validator: function (v) {
+          if (v === null || v === undefined) return true;
+
+          const price = getVal(this, "price");
+
+          // if price exists, enforce discountedPrice < price
+          if (price !== null && price !== undefined) {
+            return Number(v) < Number(price);
+          }
+
+          // product always has price required, but keep compatible anyway
+          return true;
+        },
+        message: "discountedPrice must be less than price.",
+      },
+    },
+
+    // ✅ qty threshold for discountedPrice (like sizeModel.discountMinQty)
+    discountMinQty: {
+      type: Number,
+      default: null,
+      min: 1,
+      validate: {
+        validator: function (v) {
+          if (v === null || v === undefined) return true;
+
+          const disc = getVal(this, "discountedPrice");
+
+          // if you set a min qty, you must set discountedPrice too
+          return disc !== null && disc !== undefined;
+        },
+        message: "discountMinQty requires discountedPrice to be set.",
+      },
+    },
 
     /**
-     * ✅ product-level bulk discount (qty-based)
+     * ✅ bulkDiscount (same idea as above, but as an object)
      * If minQty + price are both set and orderQty >= minQty -> use bulkDiscount.price
      */
     bulkDiscount: {
@@ -59,9 +135,10 @@ const productSchema = new mongoose.Schema(
           // if one is set, require the other
           if (hasMin !== hasPrice) return false;
 
-          // sanity: bulk price should not exceed base price (optional but recommended)
+          // enforce bulk price <= base price
           if (hasMin && hasPrice) {
-            return Number(discPrice) <= Number(this.price);
+            const base = getVal(this, "price");
+            return Number(discPrice) <= Number(base);
           }
 
           return true;
@@ -71,17 +148,21 @@ const productSchema = new mongoose.Schema(
       },
     },
 
+    /* =========================
+       CATALOG
+    ========================= */
     category: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
 
+    // store brand title (string)
     brand: { type: String, required: true, trim: true },
 
     tags: [{ type: String, trim: true }],
 
     quantity: { type: Number, required: true, min: 0 },
 
-    /**
-     * ✅ order constraints
-     */
+    /* =========================
+       ORDER CONSTRAINTS
+    ========================= */
     minOrder: { type: Number, default: null, min: 1 },
 
     maxOrder: {
@@ -90,9 +171,12 @@ const productSchema = new mongoose.Schema(
       min: 1,
       validate: {
         validator: function (v) {
-          if (v == null) return true;
-          if (this.minOrder == null) return true;
-          return Number(v) >= Number(this.minOrder);
+          if (v === null || v === undefined) return true;
+
+          const minOrder = getVal(this, "minOrder");
+
+          if (minOrder === null || minOrder === undefined) return true;
+          return Number(v) >= Number(minOrder);
         },
         message: "maxOrder must be greater than or equal to minOrder.",
       },
@@ -100,6 +184,9 @@ const productSchema = new mongoose.Schema(
 
     sold: { type: Number, default: 0 },
 
+    /* =========================
+       PRINTING
+    ========================= */
     isPrintable: { type: Boolean, default: false },
 
     printingPrice: {
@@ -117,6 +204,9 @@ const productSchema = new mongoose.Schema(
       instructions: { type: String, default: "", trim: true },
     },
 
+    /* =========================
+       IMAGES / VARIANTS
+    ========================= */
     images: [
       {
         public_id: { type: String, required: true },
@@ -142,6 +232,9 @@ const productSchema = new mongoose.Schema(
       },
     ],
 
+    /* =========================
+       RATINGS
+    ========================= */
     ratings: [
       {
         star: { type: Number, min: 1, max: 5, required: true },
@@ -190,12 +283,33 @@ productSchema.pre("validate", function (next) {
     this.printingPrice = null;
   }
 
-  // optional cleanup: keep discountedPrice only if it's truly an "old price"
-  if (this.discountedPrice != null && Number(this.discountedPrice) <= Number(this.price)) {
-    this.discountedPrice = null;
-  }
-
   next();
 });
+
+/* =========================
+   OPTIONAL: instance method
+   compute unit price by qty
+========================= */
+productSchema.methods.getUnitPriceByQty = function (qty = 1) {
+  const q = Math.max(1, Number(qty || 1));
+  const base = Number(this.price || 0);
+
+  // 1) bulkDiscount overrides (if set and qty hits)
+  const bdMin = this.bulkDiscount?.minQty;
+  const bdPrice = this.bulkDiscount?.price;
+  if (bdMin != null && bdPrice != null && q >= Number(bdMin)) {
+    return Number(bdPrice);
+  }
+
+  // 2) discountedPrice with discountMinQty
+  if (this.discountedPrice != null) {
+    if (this.discountMinQty != null && q >= Number(this.discountMinQty)) {
+      return Number(this.discountedPrice);
+    }
+  }
+
+  // 3) normal price
+  return base;
+};
 
 module.exports = mongoose.model("Product", productSchema);
