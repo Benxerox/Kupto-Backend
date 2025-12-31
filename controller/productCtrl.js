@@ -1,5 +1,4 @@
 // controllers/productCtrl.js
-const mongoose = require("mongoose");
 const Product = require("../models/productModel");
 const asyncHandler = require("express-async-handler");
 const slugify = require("slugify");
@@ -12,45 +11,114 @@ const User = require("../models/userModel");
 const toNumberOrNull = (v) => {
   if (v === undefined || v === null || v === "") return null;
   const n = Number(v);
-  return Number.isFinite(n) ? n : NaN; // keep NaN to detect invalid numbers
+  return Number.isFinite(n) ? n : NaN;
 };
 
-const makeSlug = (title) =>
-  slugify(String(title || "").trim(), { lower: true, strict: true });
+const pickNested = (obj, path) => {
+  try {
+    return path.split(".").reduce((acc, k) => (acc ? acc[k] : undefined), obj);
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Validate pricing rules for:
+ * - price / discountedPrice
+ * - bulkDiscount.minQty / bulkDiscount.price (optional)
+ * - minOrder / maxOrder (optional)
+ */
+const validatePricingPayload = ({ body, existing }) => {
+  // price
+  const nextPrice =
+    body.price !== undefined && body.price !== null && body.price !== ""
+      ? toNumberOrNull(body.price)
+      : existing
+      ? Number(existing.price)
+      : toNumberOrNull(body.price);
+
+  if (Number.isNaN(nextPrice)) return { ok: false, message: "Invalid price" };
+
+  // discountedPrice (old price)
+  let nextDiscounted = existing?.discountedPrice ?? null;
+  if (body.discountedPrice !== undefined) {
+    if (body.discountedPrice === "" || body.discountedPrice === null) nextDiscounted = null;
+    else nextDiscounted = toNumberOrNull(body.discountedPrice);
+  }
+
+  if (Number.isNaN(nextDiscounted)) return { ok: false, message: "Invalid discounted price" };
+
+  // Your rule: discountedPrice is "old price", so it must NOT be lower than current.
+  // ✅ old price must be >= current (or null)
+  if (nextDiscounted !== null && nextDiscounted < nextPrice) {
+    return { ok: false, message: "Discounted price (old price) cannot be lower than price" };
+  }
+
+  // bulkDiscount
+  const bdMinRaw =
+    pickNested(body, "bulkDiscount.minQty") !== undefined
+      ? pickNested(body, "bulkDiscount.minQty")
+      : existing
+      ? existing?.bulkDiscount?.minQty
+      : undefined;
+
+  const bdPriceRaw =
+    pickNested(body, "bulkDiscount.price") !== undefined
+      ? pickNested(body, "bulkDiscount.price")
+      : existing
+      ? existing?.bulkDiscount?.price
+      : undefined;
+
+  const bdMin = bdMinRaw === "" ? null : bdMinRaw === undefined ? null : toNumberOrNull(bdMinRaw);
+  const bdPrice = bdPriceRaw === "" ? null : bdPriceRaw === undefined ? null : toNumberOrNull(bdPriceRaw);
+
+  if (Number.isNaN(bdMin)) return { ok: false, message: "Invalid bulkDiscount.minQty" };
+  if (Number.isNaN(bdPrice)) return { ok: false, message: "Invalid bulkDiscount.price" };
+
+  const hasMin = bdMin !== null && bdMin !== undefined;
+  const hasPrice = bdPrice !== null && bdPrice !== undefined;
+
+  // if one is set, require the other
+  if (hasMin !== hasPrice) {
+    return { ok: false, message: "bulkDiscount requires BOTH minQty and price" };
+  }
+
+  if (hasMin && hasPrice) {
+    if (bdMin < 1) return { ok: false, message: "bulkDiscount.minQty must be >= 1" };
+    if (bdPrice < 0) return { ok: false, message: "bulkDiscount.price must be >= 0" };
+    if (bdPrice > nextPrice) {
+      return { ok: false, message: "bulkDiscount.price cannot be higher than price" };
+    }
+  }
+
+  // minOrder / maxOrder
+  const nextMinOrder =
+    body.minOrder !== undefined ? (body.minOrder === "" ? null : toNumberOrNull(body.minOrder)) : existing?.minOrder ?? null;
+  const nextMaxOrder =
+    body.maxOrder !== undefined ? (body.maxOrder === "" ? null : toNumberOrNull(body.maxOrder)) : existing?.maxOrder ?? null;
+
+  if (Number.isNaN(nextMinOrder)) return { ok: false, message: "Invalid minOrder" };
+  if (Number.isNaN(nextMaxOrder)) return { ok: false, message: "Invalid maxOrder" };
+
+  if (nextMinOrder !== null && nextMinOrder < 1) return { ok: false, message: "minOrder must be >= 1" };
+  if (nextMaxOrder !== null && nextMaxOrder < 1) return { ok: false, message: "maxOrder must be >= 1" };
+
+  if (nextMinOrder !== null && nextMaxOrder !== null && nextMaxOrder < nextMinOrder) {
+    return { ok: false, message: "maxOrder must be greater than or equal to minOrder" };
+  }
+
+  return { ok: true, nextPrice, nextDiscounted, bdMin, bdPrice, nextMinOrder, nextMaxOrder };
+};
 
 /* =========================================
    CREATE PRODUCT
-   - generate slug
-   - validate discountedPrice <= price
-   - optional: guard slug uniqueness
 ========================================= */
 const createProduct = asyncHandler(async (req, res) => {
   try {
-    if (req.body.title) req.body.slug = makeSlug(req.body.title);
+    if (req.body.title) req.body.slug = slugify(req.body.title.trim());
 
-    // ✅ validate discountedPrice vs price (create)
-    const priceNum = toNumberOrNull(req.body.price);
-    const discountNum = toNumberOrNull(req.body.discountedPrice);
-
-    if (Number.isNaN(priceNum)) {
-      return res.status(400).json({ message: "Invalid price" });
-    }
-    if (Number.isNaN(discountNum)) {
-      return res.status(400).json({ message: "Invalid discounted price" });
-    }
-    if (discountNum !== null && discountNum > priceNum) {
-      return res
-        .status(400)
-        .json({ message: "Discounted price cannot be higher than price" });
-    }
-
-    // ✅ optional: slug uniqueness check (helps give nicer error than Mongo duplicate key)
-    if (req.body.slug) {
-      const exists = await Product.findOne({ slug: req.body.slug }).select("_id");
-      if (exists) {
-        return res.status(400).json({ message: "Slug already exists. Change product title." });
-      }
-    }
+    const check = validatePricingPayload({ body: req.body, existing: null });
+    if (!check.ok) return res.status(400).json({ message: check.message });
 
     const newProduct = await Product.create(req.body);
     return res.status(201).json({ newProduct });
@@ -65,63 +133,19 @@ const createProduct = asyncHandler(async (req, res) => {
 
 /* =========================================
    UPDATE PRODUCT
-   - generate slug
-   - validate discountedPrice <= price correctly (even if only one is sent)
-   - reject NaN
-   - guard slug uniqueness
 ========================================= */
 const updateProduct = asyncHandler(async (req, res) => {
   const id = req.params.id;
   validateMongoDbId(id);
 
   try {
-    if (req.body.title) req.body.slug = makeSlug(req.body.title);
+    if (req.body.title) req.body.slug = slugify(req.body.title.trim());
 
-    // ✅ fetch existing so we can compare against current values
-    const existing = await Product.findById(id).select("price discountedPrice slug");
+    const existing = await Product.findById(id).select("price discountedPrice minOrder maxOrder bulkDiscount");
     if (!existing) return res.status(404).json({ message: "Product not found" });
 
-    // ✅ slug uniqueness if changing
-    if (req.body.slug && req.body.slug !== existing.slug) {
-      const exists = await Product.findOne({ slug: req.body.slug, _id: { $ne: id } }).select("_id");
-      if (exists) {
-        return res.status(400).json({ message: "Slug already exists. Change product title." });
-      }
-    }
-
-    // nextPrice: body.price if provided else existing.price
-    const nextPrice =
-      req.body.price !== undefined && req.body.price !== null && req.body.price !== ""
-        ? toNumberOrNull(req.body.price)
-        : Number(existing.price);
-
-    if (Number.isNaN(nextPrice)) {
-      return res.status(400).json({ message: "Invalid price" });
-    }
-
-    // nextDiscount:
-    // - if discountedPrice NOT sent -> keep existing discountedPrice
-    // - if sent as "" or null -> set null
-    // - else convert to number
-    let nextDiscount = existing.discountedPrice ?? null;
-
-    if (req.body.discountedPrice !== undefined) {
-      if (req.body.discountedPrice === "" || req.body.discountedPrice === null) {
-        nextDiscount = null;
-      } else {
-        nextDiscount = toNumberOrNull(req.body.discountedPrice);
-      }
-    }
-
-    if (Number.isNaN(nextDiscount)) {
-      return res.status(400).json({ message: "Invalid discounted price" });
-    }
-
-    if (nextDiscount !== null && nextDiscount > nextPrice) {
-      return res
-        .status(400)
-        .json({ message: "Discounted price cannot be higher than price" });
-    }
+    const check = validatePricingPayload({ body: req.body, existing });
+    if (!check.ok) return res.status(400).json({ message: check.message });
 
     const updated = await Product.findByIdAndUpdate(id, req.body, {
       new: true,
@@ -148,9 +172,7 @@ const deleteProduct = asyncHandler(async (req, res) => {
 
   try {
     const deletedProduct = await Product.findByIdAndDelete(id);
-    if (!deletedProduct) {
-      return res.status(404).json({ message: "Product not found" });
-    }
+    if (!deletedProduct) return res.status(404).json({ message: "Product not found" });
     return res.json({ message: "Product deleted successfully", data: deletedProduct });
   } catch (error) {
     console.error("Error deleting product:", error);
@@ -159,20 +181,16 @@ const deleteProduct = asyncHandler(async (req, res) => {
 });
 
 /* =========================================
-   GET A PRODUCT (supports id OR slug)
+   GET A PRODUCT
 ========================================= */
 const getaProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  validateMongoDbId(id);
 
-  const isMongoId = mongoose.Types.ObjectId.isValid(id);
-  const query = isMongoId ? { _id: id } : { slug: id };
-
-  const findProduct = await Product.findOne(query)
+  const findProduct = await Product.findById(id)
     .populate("color")
     .populate("size")
     .populate("category");
-
-  if (!findProduct) return res.status(404).json({ message: "Product not found" });
 
   return res.json(findProduct);
 });
@@ -181,7 +199,6 @@ const getaProduct = asyncHandler(async (req, res) => {
    GET ALL PRODUCTS
 ========================================= */
 const getAllProduct = asyncHandler(async (req, res) => {
-  // filtering
   const queryObj = { ...req.query };
   const excludeFields = ["page", "sort", "limit", "fields"];
   excludeFields.forEach((el) => delete queryObj[el]);
@@ -191,23 +208,12 @@ const getAllProduct = asyncHandler(async (req, res) => {
 
   let query = Product.find(JSON.parse(queryStr));
 
-  // sorting
-  if (req.query.sort) {
-    const sortBy = req.query.sort.split(",").join(" ");
-    query = query.sort(sortBy);
-  } else {
-    query = query.sort("-createdAt");
-  }
+  if (req.query.sort) query = query.sort(req.query.sort.split(",").join(" "));
+  else query = query.sort("-createdAt");
 
-  // limiting fields
-  if (req.query.fields) {
-    const fields = req.query.fields.split(",").join(" ");
-    query = query.select(fields);
-  } else {
-    query = query.select("-__v");
-  }
+  if (req.query.fields) query = query.select(req.query.fields.split(",").join(" "));
+  else query = query.select("-__v");
 
-  // pagination
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 100);
   const skip = (page - 1) * limit;
@@ -246,6 +252,7 @@ const addToWhishlist = asyncHandler(async (req, res) => {
 
 /* =========================================
    RATING
+   ✅ store average as decimal (1 decimal) instead of Math.round
 ========================================= */
 const rating = asyncHandler(async (req, res) => {
   const { _id } = req.user;
@@ -254,9 +261,7 @@ const rating = asyncHandler(async (req, res) => {
   const product = await Product.findById(prodId);
   if (!product) return res.status(404).json({ error: "Product not found" });
 
-  const alreadyRated = product.ratings.find(
-    (r) => r.postedBy.toString() === _id.toString()
-  );
+  const alreadyRated = product.ratings.find((r) => r.postedBy.toString() === _id.toString());
 
   if (alreadyRated) {
     await Product.updateOne(
@@ -266,26 +271,21 @@ const rating = asyncHandler(async (req, res) => {
   } else {
     await Product.findByIdAndUpdate(
       prodId,
-      {
-        $push: {
-          ratings: { star, comment, postedBy: _id },
-        },
-      },
+      { $push: { ratings: { star, comment, postedBy: _id } } },
       { new: true }
     );
   }
 
-  const getallratings = await Product.findById(prodId);
-  const totalRating = getallratings.ratings.length;
-  const ratingsum = getallratings.ratings
-    .map((item) => item.star)
-    .reduce((prev, curr) => prev + curr, 0);
+  const refreshed = await Product.findById(prodId);
+  const total = refreshed.ratings.length;
+  const sum = refreshed.ratings.reduce((acc, r) => acc + (Number(r.star) || 0), 0);
 
-  const actualRating = Math.round(ratingsum / totalRating);
+  const avg = total ? sum / total : 0;
+  const avg1 = Math.round(avg * 10) / 10; // ✅ 1 decimal
 
   const finalproduct = await Product.findByIdAndUpdate(
     prodId,
-    { totalrating: actualRating },
+    { totalrating: avg1 },
     { new: true }
   );
 
