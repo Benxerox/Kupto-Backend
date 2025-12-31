@@ -1,6 +1,35 @@
 // models/sizeModel.js
 const mongoose = require("mongoose");
 
+/**
+ * Helpers to make validators work on BOTH:
+ * - Document validation (this.price, this.discountPrice)
+ * - Query update validation (this.getUpdate().price, $set.price, etc.)
+ */
+const getUpdate = (ctx) => {
+  if (!ctx || typeof ctx.getUpdate !== "function") return null;
+  return ctx.getUpdate() || null;
+};
+
+const getVal = (ctx, field) => {
+  // 1) Document context
+  if (ctx && Object.prototype.hasOwnProperty.call(ctx, field)) return ctx[field];
+
+  // 2) Query/update context
+  const u = getUpdate(ctx);
+  if (!u) return undefined;
+
+  // direct
+  if (Object.prototype.hasOwnProperty.call(u, field)) return u[field];
+
+  // $set / $setOnInsert
+  if (u.$set && Object.prototype.hasOwnProperty.call(u.$set, field)) return u.$set[field];
+  if (u.$setOnInsert && Object.prototype.hasOwnProperty.call(u.$setOnInsert, field))
+    return u.$setOnInsert[field];
+
+  return undefined;
+};
+
 const sizeSchema = new mongoose.Schema(
   {
     /* =====================
@@ -46,9 +75,9 @@ const sizeSchema = new mongoose.Schema(
 
     /* =====================
        PRICING (UPDATED)
-       ✅ Fix: allow discountPrice/discountMinQty even when price is NULL.
+       ✅ discountPrice allowed even when price is NULL.
        - If price exists: discountPrice must be < price.
-       - If price is NULL: discountPrice is treated as an absolute fixed price.
+       - If price is NULL: discountPrice is treated as absolute fixed price.
        - discountMinQty requires discountPrice.
     ===================== */
     price: {
@@ -65,20 +94,20 @@ const sizeSchema = new mongoose.Schema(
         validator: function (v) {
           if (v === null || v === undefined) return true;
 
+          const price = getVal(this, "price"); // supports update context too
+
           // if price is set, enforce discountPrice < price
-          if (this.price !== null && this.price !== undefined) {
-            return Number(v) < Number(this.price);
+          if (price !== null && price !== undefined) {
+            return Number(v) < Number(price);
           }
 
-          // if price is NOT set, allow discountPrice (treat as absolute)
+          // if price is NOT set, allow discountPrice (absolute)
           return true;
         },
         message: "discountPrice must be less than price (when price is set).",
       },
     },
 
-    // ✅ Bulk discount threshold (optional)
-    // Example: 10 => discountPrice applies when qty >= 10
     discountMinQty: {
       type: Number,
       default: null,
@@ -87,8 +116,10 @@ const sizeSchema = new mongoose.Schema(
         validator: function (v) {
           if (v === null || v === undefined) return true;
 
+          const discountPrice = getVal(this, "discountPrice"); // supports update context too
+
           // if you set a min qty, you must set a discount price too
-          return this.discountPrice !== null && this.discountPrice !== undefined;
+          return discountPrice !== null && discountPrice !== undefined;
         },
         message: "discountMinQty requires discountPrice to be set.",
       },
@@ -150,24 +181,11 @@ sizeSchema.virtual("hasFixedPrice").get(function () {
 /* =====================
    METHODS
 ===================== */
-/**
- * Returns CURRENT price for this size (NO quantity logic here):
- * Priority:
- * 1) if price exists => price
- * 2) else => basePrice + priceAdjustment
- */
 sizeSchema.methods.getCurrentPrice = function (basePrice = 0) {
   if (this.price !== null && this.price !== undefined) return Number(this.price);
   return Number(basePrice || 0) + Number(this.priceAdjustment || 0);
 };
 
-/**
- * Returns price based on quantity:
- * - if discountPrice + discountMinQty exist and qty >= discountMinQty => discountPrice
- * - else => current price (price or base+adjustment)
- *
- * NOTE: discountPrice is treated as absolute final price (not computed).
- */
 sizeSchema.methods.getPriceByQty = function (qty = 1, basePrice = 0) {
   const q = Math.max(1, Number(qty || 1));
 

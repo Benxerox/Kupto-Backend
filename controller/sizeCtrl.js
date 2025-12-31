@@ -114,10 +114,13 @@ const updateSize = asyncHandler(async (req, res) => {
     }
   }
 
+  
   const updatedSize = await Size.findByIdAndUpdate(id, body, {
-    new: true,
-    runValidators: true,
-  });
+  new: true,
+  runValidators: true,
+  context: "query", // ✅ IMPORTANT
+});
+
 
   if (!updatedSize) return res.status(404).json({ message: "Size not found" });
 
