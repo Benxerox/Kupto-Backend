@@ -378,6 +378,9 @@ const userCart = asyncHandler(async (req, res) => {
 });
 
 
+
+
+
 const getUserCart = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   validateMongoDbId(_id);
@@ -440,102 +443,355 @@ const emptyCart = asyncHandler(async(req, res)=>{
 });
 
 
-// Helper function to generate HTML for the receipt
-const generateReceiptHtml = (order, shippingInfo, orderItems, totalPrice, paymentInfo) => {
-  return `
-    <h1>Order Receipt</h1>
-    <h3>Order Number: ${order._id}</h3>
-    <h3>Shipping Information:</h3>
-    <p>Name: ${shippingInfo.firstName} ${shippingInfo.lastName}</p>
-    <p>Address: ${shippingInfo.address || 'Not provided'}, ${shippingInfo.region || 'Not provided'}, ${shippingInfo.subRegion || 'Not provided'}</p>
 
-    <h3>Order Items:</h3>
-    <ul>
-      ${orderItems.map(item => `
-        <li>
-          <div style="width: 100%;">  <!-- Fixed the missing closing quote here -->
-            <img src="${item.product.images[0]?.url || ''}" alt="Product Image" style="width: 100%;" />
+const generateReceiptHtml = (order, shippingInfo = {}, orderItems = [], totalPrice = 0, paymentInfo = {}) => {
+  const escapeHtml = (v) =>
+    String(v ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+  const formatUGX = (n) => {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return "UGX 0";
+    return `UGX ${num.toLocaleString()}`;
+  };
+
+  const getProductTitle = (prod) => {
+    if (!prod) return "Product";
+    if (typeof prod === "object") return prod.title || prod.name || "Product";
+    return "Product"; // product is likely an id string
+  };
+
+  const getProductDescription = (prod) => {
+    if (!prod || typeof prod !== "object") return "";
+    return prod.description || "";
+  };
+
+  const getProductImageUrl = (prod) => {
+    if (!prod || typeof prod !== "object") return "";
+    const imgs = Array.isArray(prod.images) ? prod.images : [];
+    if (!imgs.length) return "";
+
+    const first = imgs[0];
+    if (typeof first === "string") return first;
+    if (first && typeof first === "object") return first.url || "";
+    return "";
+  };
+
+  const getVariantLabel = (v) => {
+    if (!v) return "";
+    if (typeof v === "object") return v.title || v.name || v.label || "";
+    return String(v);
+  };
+
+  const orderId = escapeHtml(order?._id || "");
+  const createdAt = order?.createdAt ? new Date(order.createdAt) : new Date();
+  const orderDate = escapeHtml(createdAt.toLocaleDateString());
+
+  const firstName = escapeHtml(shippingInfo?.firstName || "");
+  const lastName = escapeHtml(shippingInfo?.lastName || "");
+  const address = escapeHtml(shippingInfo?.address || "Not provided");
+  const region = escapeHtml(shippingInfo?.region || "Not provided");
+  const subRegion = escapeHtml(shippingInfo?.subRegion || "Not provided");
+
+  const paymentMethod = escapeHtml(paymentInfo?.paymentMethod || "Not specified");
+  const payStatus = escapeHtml(paymentInfo?.status || "Pending");
+  const paypalOrderID = paymentInfo?.paypalOrderID ? escapeHtml(paymentInfo.paypalOrderID) : "";
+  const paypalPaymentID = paymentInfo?.paypalPaymentID ? escapeHtml(paymentInfo.paypalPaymentID) : "";
+  const paypalPayerID = paymentInfo?.paypalPayerID ? escapeHtml(paymentInfo.paypalPayerID) : "";
+
+  const itemsHtml = (Array.isArray(orderItems) ? orderItems : []).map((item) => {
+    const prod = item?.product;
+
+    const title = escapeHtml(getProductTitle(prod));
+    const desc = escapeHtml(getProductDescription(prod) || "No description available");
+    const imgUrl = getProductImageUrl(prod);
+
+    const qty = escapeHtml(item?.quantity ?? 1);
+    const price = formatUGX(item?.price);
+
+    const sizeLabel = escapeHtml(getVariantLabel(item?.size) || "Not specified");
+    const colorLabel = escapeHtml(getVariantLabel(item?.color) || "Not specified");
+    const instruction = escapeHtml(item?.instruction || "None");
+
+    const uploadedFiles = Array.isArray(item?.uploadedFiles) ? item.uploadedFiles : [];
+    const filesHtml = uploadedFiles.length
+      ? `<div style="margin-top:8px;">
+           <strong>Artwork Files:</strong>
+           <ul style="margin:6px 0 0 18px; padding:0;">
+             ${uploadedFiles
+               .map((f) => {
+                 const name = escapeHtml(
+                   f?.fileName ||
+                     f?.original_filename ||
+                     f?.originalFilename ||
+                     (f?.public_id ? String(f.public_id).split("/").pop() : "file")
+                 );
+                 const url = f?.url ? escapeHtml(f.url) : "";
+                 // If you don't want clickable links in email, remove <a>
+                 return `<li style="margin:4px 0;">
+                           ${url ? `<a href="${url}" target="_blank" rel="noreferrer">${name}</a>` : name}
+                         </li>`;
+               })
+               .join("")}
+           </ul>
+         </div>`
+      : "";
+
+    return `
+      <li style="margin: 16px 0; padding: 14px; border: 1px solid #e9e9e9; border-radius: 10px;">
+        <div style="display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap;">
+          <div style="width: 120px; height: 120px; border: 1px solid #f0f0f0; border-radius: 10px; overflow:hidden; background:#fff; display:flex; align-items:center; justify-content:center;">
+            ${
+              imgUrl
+                ? `<img src="${escapeHtml(imgUrl)}" alt="${title}" style="width:100%; height:100%; object-fit:contain;" />`
+                : `<div style="font-size:12px; color:#999; padding:8px; text-align:center;">No image</div>`
+            }
           </div>
-          <strong>Product:</strong> ${item.product.title}<br>
-          <strong>Description:</strong> ${item.product.description || 'No description available'}<br>
-          <strong>Quantity:</strong> ${item.quantity}<br>
-          <strong>Price:</strong> UGX ${item.price}<br>
-          <strong>Size:</strong> ${item.size?.title || 'Not specified'}<br>
-          <strong>Color:</strong> ${item.color?.title || 'Not specified'}<br>
-          <strong>Instructions:</strong> ${item.instruction || 'None'}<br>
-        </li>
-      `).join('')}
-    </ul>
 
-    <h3>Total Price: UGX ${totalPrice}</h3>
-    <h3>Payment Method: ${paymentInfo.paymentMethod || 'Not specified'}</h3>
-    <h3>Order Date: ${new Date(order.createdAt).toLocaleDateString()}</h3>
+          <div style="flex:1; min-width:220px;">
+            <div style="font-size:16px; font-weight:700; margin-bottom:6px;">${title}</div>
+            <div style="font-size:13px; color:#444; margin-bottom:10px;">${desc}</div>
+
+            <div style="font-size:13px; color:#222; line-height:1.7;">
+              <div><strong>Quantity:</strong> ${qty}</div>
+              <div><strong>Unit Price:</strong> ${escapeHtml(price)}</div>
+              <div><strong>Size:</strong> ${sizeLabel}</div>
+              <div><strong>Color:</strong> ${colorLabel}</div>
+              <div><strong>Instructions:</strong> ${instruction}</div>
+            </div>
+
+            ${filesHtml}
+          </div>
+        </div>
+      </li>
+    `;
+  }).join("");
+
+  const paypalExtra =
+    paymentMethod.toLowerCase() === "paypal"
+      ? `
+        <div style="margin-top:10px; font-size:13px; color:#222; line-height:1.7;">
+          ${paypalOrderID ? `<div><strong>PayPal Order ID:</strong> ${paypalOrderID}</div>` : ""}
+          ${paypalPaymentID ? `<div><strong>PayPal Payment ID:</strong> ${paypalPaymentID}</div>` : ""}
+          ${paypalPayerID ? `<div><strong>PayPal Payer ID:</strong> ${paypalPayerID}</div>` : ""}
+        </div>
+      `
+      : "";
+
+  return `
+    <div style="font-family: Arial, Helvetica, sans-serif; color:#111; max-width: 720px; margin: 0 auto; padding: 18px;">
+      <div style="padding: 18px; border: 1px solid #eee; border-radius: 12px;">
+        <h1 style="margin: 0 0 10px; font-size: 22px;">Order Receipt</h1>
+
+        <div style="font-size: 13px; color:#444; line-height:1.7;">
+          <div><strong>Order Number:</strong> ${orderId}</div>
+          <div><strong>Order Date:</strong> ${orderDate}</div>
+        </div>
+
+        <hr style="border:none; border-top:1px solid #eee; margin: 14px 0;" />
+
+        <h3 style="margin: 0 0 8px; font-size: 16px;">Shipping Information</h3>
+        <div style="font-size: 13px; color:#222; line-height:1.7;">
+          <div><strong>Name:</strong> ${firstName} ${lastName}</div>
+          <div><strong>Address:</strong> ${address}, ${region}, ${subRegion}</div>
+        </div>
+
+        <hr style="border:none; border-top:1px solid #eee; margin: 14px 0;" />
+
+        <h3 style="margin: 0 0 8px; font-size: 16px;">Order Items</h3>
+        <ul style="list-style:none; margin: 0; padding: 0;">
+          ${itemsHtml || `<li style="color:#777; font-size:13px;">No items found.</li>`}
+        </ul>
+
+        <hr style="border:none; border-top:1px solid #eee; margin: 14px 0;" />
+
+        <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+          <div style="font-size: 13px; color:#222; line-height:1.7;">
+            <div><strong>Payment Method:</strong> ${paymentMethod}</div>
+            <div><strong>Payment Status:</strong> ${payStatus}</div>
+            ${paypalExtra}
+          </div>
+
+          <div style="text-align:right; min-width: 220px;">
+            <div style="font-size: 13px; color:#666;">Total</div>
+            <div style="font-size: 20px; font-weight: 800;">${escapeHtml(formatUGX(totalPrice))}</div>
+          </div>
+        </div>
+
+        <div style="margin-top: 16px; font-size: 12px; color:#777;">
+          Thank you for your purchase.
+        </div>
+      </div>
+    </div>
   `;
 };
 
+
+
+
 const createOrder = asyncHandler(async (req, res) => {
-  const { shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo } = req.body;
+  const {
+    shippingInfo,
+    orderItems,
+    totalPrice,
+    totalPriceAfterDiscount,
+    paymentInfo,
+  } = req.body;
+
   const { _id } = req.user;
 
-  // Set default instruction if missing
-  orderItems.forEach(item => {
-    if (!item.instruction) item.instruction = null;
-  });
-
-  // Validate payment method
-  if (!paymentInfo || !paymentInfo.paymentMethod) {
-    return res.status(400).json({ message: 'Payment method is required' });
+  // ✅ basic validation
+  if (!Array.isArray(orderItems) || orderItems.length === 0) {
+    return res.status(400).json({ message: "orderItems must be a non-empty array" });
   }
 
-  // Validate PayPal details if needed
-  if (paymentInfo.paymentMethod === 'PayPal' && (!paymentInfo.paypalOrderID || !paymentInfo.paypalPaymentID)) {
-    return res.status(400).json({ message: 'PayPal Order ID and Payment ID are required' });
+  if (!shippingInfo) {
+    return res.status(400).json({ message: "shippingInfo is required" });
+  }
+
+  // ✅ default instruction if missing
+  const safeOrderItems = orderItems.map((item) => ({
+    ...item,
+    instruction: item?.instruction ? item.instruction : null,
+  }));
+
+  // ✅ payment validation
+  if (!paymentInfo || typeof paymentInfo !== "object") {
+    return res.status(400).json({ message: "paymentInfo is required" });
+  }
+
+  const methodRaw = paymentInfo.paymentMethod;
+  const paymentMethod = String(methodRaw || "").trim();
+
+  if (!paymentMethod) {
+    return res.status(400).json({ message: "Payment method is required" });
+  }
+
+  // ✅ normalize PayPal fields
+  // (Keep the names you already use, but also accept common aliases safely)
+  const paypalOrderID =
+    paymentInfo.paypalOrderID ||
+    paymentInfo.paypal_order_id ||
+    paymentInfo.orderID ||
+    paymentInfo.orderId ||
+    null;
+
+  const paypalPaymentID =
+    paymentInfo.paypalPaymentID ||
+    paymentInfo.paypal_payment_id ||
+    paymentInfo.paymentID ||
+    paymentInfo.paymentId ||
+    null;
+
+  const paypalPayerID =
+    paymentInfo.paypalPayerID ||
+    paymentInfo.payerID ||
+    paymentInfo.payerId ||
+    null;
+
+  // ✅ Build "safePaymentInfo" (store only what makes sense per method)
+  const safePaymentInfo = {
+    paymentMethod,
+    // optional generic fields you might have:
+    status: paymentInfo.status || "Pending",
+    // PayPal fields (only for PayPal)
+    paypalOrderID: null,
+    paypalPaymentID: null,
+    paypalPayerID: null,
+  };
+
+  const isPayPal = paymentMethod.toLowerCase() === "paypal";
+
+  if (isPayPal) {
+    // ✅ PayPal REQUIRED fields
+    if (!paypalOrderID) {
+      return res.status(400).json({ message: "PayPal Order ID is required" });
+    }
+
+    // paymentID is sometimes not available immediately depending on your flow.
+    // If your frontend always has it, keep it required. Otherwise allow it.
+    // ✅ Here: require at least one of paymentID or payerID to reduce failures.
+    if (!paypalPaymentID && !paypalPayerID) {
+      return res.status(400).json({
+        message: "PayPal Payment ID (or Payer ID) is required",
+      });
+    }
+
+    safePaymentInfo.paypalOrderID = String(paypalOrderID);
+    safePaymentInfo.paypalPaymentID = paypalPaymentID ? String(paypalPaymentID) : null;
+    safePaymentInfo.paypalPayerID = paypalPayerID ? String(paypalPayerID) : null;
+
+    // If your verification route confirms payment, you can set this to "Paid"
+    // safePaymentInfo.status = "Paid";
   } else {
-    paymentInfo.paypalOrderID = null;
-    paymentInfo.paypalPaymentID = null;
+    // ✅ Non-PayPal: ensure we do NOT store PayPal IDs
+    safePaymentInfo.paypalOrderID = null;
+    safePaymentInfo.paypalPaymentID = null;
+    safePaymentInfo.paypalPayerID = null;
   }
 
   try {
-    // Create order
+    // ✅ Create order
     const order = await Order.create({
       shippingInfo,
-      orderItems,
+      orderItems: safeOrderItems,
       totalPrice,
       totalPriceAfterDiscount,
-      paymentInfo,
+      paymentInfo: safePaymentInfo,
       user: _id,
     });
 
-    const user = await User.findById(_id);
-    const userEmail = user.email;
+    // ✅ (optional) clear cart after successful order
+    // await Cart.deleteMany({ userId: _id });
 
-    // Prepare the email content
-    const receiptHtml = generateReceiptHtml(order, shippingInfo, orderItems, totalPrice, paymentInfo);
+    const user = await User.findById(_id).select("email firstname lastname");
+    const userEmail = user?.email;
 
-    const emailData = {
-      to: userEmail,
-      subject: 'Your Order Receipt',
-      text: 'Thank you for your purchase! Please find your receipt below.', 
-      html: receiptHtml,
-    };
-
-    // Send the email
-    try {
-      await sendEmail(emailData);
-      res.json({
+    // ✅ send receipt email only if email exists
+    if (userEmail) {
+      const receiptHtml = generateReceiptHtml(
         order,
-        success: true,
-        message: 'Order created and receipt sent successfully.',
-      });
-    } catch (emailError) {
-      console.error('Error sending email:', emailError);
-      res.status(500).json({ message: 'Failed to send email', error: emailError.message || 'Unknown error' });
+        shippingInfo,
+        safeOrderItems,
+        totalPrice,
+        safePaymentInfo
+      );
+
+      const emailData = {
+        to: userEmail,
+        subject: "Your Order Receipt",
+        text: "Thank you for your purchase! Please find your receipt below.",
+        html: receiptHtml,
+      };
+
+      try {
+        await sendEmail(emailData);
+      } catch (emailError) {
+        console.error("Error sending email:", emailError);
+        // Don’t fail the order if email fails
+      }
     }
+
+    return res.status(201).json({
+      order,
+      success: true,
+      message: userEmail
+        ? "Order created and receipt sent successfully."
+        : "Order created successfully.",
+    });
   } catch (error) {
-    console.error('Error creating order:', error.message);
-    res.status(500).json({ message: 'Failed to create order or send email' });
+    console.error("Error creating order:", error);
+    return res.status(500).json({
+      message: "Failed to create order",
+      error: error?.message || "Unknown error",
+    });
   }
 });
+
 
 
 /*
@@ -807,4 +1063,5 @@ module.exports = {
   getAllOrders,
   getSingleOrders,
   updateOrder,
+
 };

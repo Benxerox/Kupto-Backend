@@ -1,105 +1,117 @@
-const mongoose = require('mongoose');
+// models/order.model.js
+const mongoose = require("mongoose");
 
-const orderSchema = new mongoose.Schema({
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-  },
-  shippingInfo: {
-    firstName: {
-      type: String,
+const orderSchema = new mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
       required: true,
     },
-    lastName: {
-      type: String,
-      required: true,
+
+    shippingInfo: {
+      firstName: { type: String, required: true, trim: true },
+      lastName: { type: String, required: true, trim: true },
+      address: { type: String, required: true, trim: true },
+      region: { type: String, required: true, trim: true },
+      subRegion: { type: String, required: true, trim: true },
     },
-    address: {
-      type: String,
-      required: true,
-    },
-    region: {
-      type: String,
-      required: true,
-    },
-    subRegion: {
-      type: String,
-      required: true,
-    },
-  },
-  paymentInfo: {
-    paymentMethod: {
-      type: String,
-      enum: ['PayPal', 'Cash on Delivery', 'MTN', 'Airtel'],
-      required: true,
-    },
-    paypalOrderID: {
-      type: String,
-      required: function() { return this.paymentMethod === 'PayPal'; },
-    },
-    paypalPaymentID: {
-      type: String,
-      required: function() { return this.paymentMethod === 'PayPal'; },
-    }
-  },
-  orderItems: [
-    {
-      product: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Product',
+
+    paymentInfo: {
+      paymentMethod: {
+        type: String,
+        enum: ["PayPal", "Cash on Delivery", "MTN", "Airtel"],
         required: true,
+        trim: true,
       },
-      color: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Color',
-        required: false,
+
+      // ✅ Common fields for ANY method
+      status: {
+        type: String,
+        enum: ["Pending", "Paid", "Failed"],
+        default: "Pending",
       },
-      size: {
-        type: String
-      },
-      uploadedFiles: [{
-        fileName: String,
-        public_id: String,
-        url: String
-      }],
-      quantity: {
-        type: Number,
-        required: true,
-      },
-      price: {
-        type: Number,
-        required: true,
-      },
-      instruction: {
+
+      // ✅ PayPal-specific
+      paypalOrderID: {
         type: String,
         default: null,
+        required: function () {
+          return this.paymentMethod === "PayPal";
+        },
       },
-    }
-  ],
-  paidAt: {
-    type: Date,
-    default: () => Date.now(),
+
+      // If you're using PayPal REST (paypal-rest-sdk), this is usually "payment.id"
+      // If you're using PayPal Checkout v2, you'd store "capture.id" here.
+      paypalCaptureID: { type: String, default: null },
+      paypalPayerID: { type: String, default: null },
+    },
+
+    orderItems: [
+      {
+        product: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Product",
+          required: true,
+        },
+
+        color: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Color",
+          required: false,
+        },
+
+        // ✅ Size ref (since you decided to ref "Size")
+        size: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Size",
+          required: false,
+        },
+
+        uploadedFiles: [
+          {
+            fileName: { type: String, default: null },
+            public_id: { type: String, default: null },
+            url: { type: String, default: null },
+          },
+        ],
+
+        quantity: { type: Number, required: true, min: 1 },
+        price: { type: Number, required: true, min: 0 },
+        instruction: { type: String, default: null },
+      },
+    ],
+
+    // ✅ Payment flags
+    isPaid: { type: Boolean, default: false },
+    paidAt: { type: Date, default: null },
+
+    // ✅ Helpful for analytics (month of creation)
+    month: {
+      type: Number,
+      min: 1,
+      max: 12,
+      default: () => new Date().getMonth() + 1,
+    },
+
+    totalPrice: { type: Number, required: true, min: 0 },
+    totalPriceAfterDiscount: { type: Number, required: true, min: 0 },
+
+    orderStatus: {
+      type: String,
+      enum: ["Ordered", "Shipped", "Delivered", "Cancelled"],
+      default: "Ordered",
+    },
   },
-  month: {
-    type: Number, // Store month as an integer (1-12)
-    default: () => new Date().getMonth() + 1,
-  },
-  totalPrice: {
-    type: Number,
-    required: true,
-  },
-  totalPriceAfterDiscount: {
-    type: Number,
-    required: true,
-  },
-  orderStatus: {
-    type: String,
-    enum: ['Ordered', 'Shipped', 'Delivered', 'Cancelled'], // Example statuses
-    default: 'Ordered',
+  { timestamps: true }
+);
+
+// Optional: keep month always aligned with createdAt
+orderSchema.pre("save", function (next) {
+  if (this.isNew && this.createdAt) {
+    this.month = new Date(this.createdAt).getMonth() + 1;
   }
-}, {
-  timestamps: true,
+  next();
 });
 
-module.exports = mongoose.model('Order', orderSchema);
+module.exports = mongoose.model("Order", orderSchema);
