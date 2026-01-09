@@ -353,29 +353,112 @@ const getWishlist = asyncHandler(async(req, res)=>{
     throw new Error(error);
   }
 });
+
 const userCart = asyncHandler(async (req, res) => {
-  const { productId, color, quantity, size, price, uploadedFiles, instruction } = req.body;
+  const {
+    productId,
+    color,
+    quantity,
+    size,
+    price,
+    uploadedFiles,
+    instruction,
+
+    variantImage,
+    printSide,
+    printUnitPrice,
+    printKey,
+    printPricingTitle,
+    preparePriceOnce,
+    preparePriceApplied,
+    printDiscountMinQty,
+  } = req.body;
+
   const { _id } = req.user;
   validateMongoDbId(_id);
+  validateMongoDbId(productId);
+
+  const qty = Math.max(1, Number(quantity || 1));
 
   try {
-    // Create a new cart entry with the uploaded files
-    let newCart = await new Cart({
+    // ✅ 1) find existing FIRST
+    const existing = await Cart.findOne({
       userId: _id,
       productId,
-      color,
-      size,
-      price,
-      quantity,
-      uploadedFiles,
-      instruction,
-    }).save();
+      color: color || null,
+      size: size || null,
+      printSide: printSide || "",
+      printKey: printKey || "",
+    });
 
-    res.json(newCart);
+    if (existing) {
+      existing.quantity = Number(existing.quantity || 0) + qty;
+
+      // keep latest values
+      if (price != null) existing.price = Number(price);
+      if (variantImage != null) existing.variantImage = variantImage;
+
+      existing.instruction = instruction ?? existing.instruction ?? null;
+
+      existing.printSide = printSide ?? existing.printSide ?? "";
+      existing.printUnitPrice =
+        printUnitPrice != null
+          ? Number(printUnitPrice)
+          : Number(existing.printUnitPrice || 0);
+
+      existing.printKey = printKey ?? existing.printKey ?? "";
+      existing.printPricingTitle = printPricingTitle ?? existing.printPricingTitle ?? "";
+
+      existing.preparePriceOnce =
+        preparePriceOnce != null
+          ? Number(preparePriceOnce)
+          : Number(existing.preparePriceOnce || 0);
+
+      existing.preparePriceApplied =
+        preparePriceApplied != null
+          ? Boolean(preparePriceApplied)
+          : Boolean(existing.preparePriceApplied);
+
+      existing.printDiscountMinQty =
+        printDiscountMinQty != null ? Number(printDiscountMinQty) : existing.printDiscountMinQty ?? null;
+
+      // append files if provided
+      if (Array.isArray(uploadedFiles) && uploadedFiles.length) {
+        existing.uploadedFiles = [...(existing.uploadedFiles || []), ...uploadedFiles];
+      }
+
+      await existing.save();
+      return res.json(existing);
+    }
+
+    // ✅ 2) otherwise create new
+    const newCart = await Cart.create({
+      userId: _id,
+      productId,
+      color: color || null,
+      size: size || null,
+      price: Number(price),
+      quantity: qty,
+      uploadedFiles: Array.isArray(uploadedFiles) ? uploadedFiles : [],
+      instruction: instruction ?? null,
+
+      variantImage: variantImage ?? "",
+      printSide: printSide ?? "",
+      printUnitPrice: Number(printUnitPrice || 0),
+      printKey: printKey ?? "",
+      printPricingTitle: printPricingTitle ?? "",
+      preparePriceOnce: Number(preparePriceOnce || 0),
+      preparePriceApplied: Boolean(preparePriceApplied || false),
+      printDiscountMinQty: printDiscountMinQty != null ? Number(printDiscountMinQty) : null,
+    });
+
+    return res.json(newCart);
   } catch (error) {
     throw new Error(error);
   }
 });
+
+ 
 
 
 
@@ -852,7 +935,7 @@ const getMyOrders = asyncHandler(async(req, res)=>{
     .populate('orderItems.product')
     .populate('orderItems.color')
     .populate('orderItems.size')
-    .populate('orderItems.uploadedFiles')
+   
    
 
     res.json({
