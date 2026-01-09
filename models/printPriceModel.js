@@ -1,6 +1,5 @@
-const mongoose = require("mongoose"); // Erase if already required
+const mongoose = require("mongoose");
 
-// Declare the Schema of the Mongo model
 const printPriceSchema = new mongoose.Schema(
   {
     title: {
@@ -11,11 +10,10 @@ const printPriceSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // ✅ minimum quantity required for discount prices to apply
-    // Example: if discountMinQty = 50, then discount applies when qty >= 50
+    // ✅ discount applies when qty >= discountMinQty
     discountMinQty: {
       type: Number,
-      default: 0, // 0 means "no minimum" / discount rule disabled unless you want otherwise
+      default: 0,
       min: 0,
     },
 
@@ -28,16 +26,17 @@ const printPriceSchema = new mongoose.Schema(
     printPrice: {
       oneSide: {
         type: Number,
-        default: 0,
+        required: true, // ✅ required now
         min: 0,
       },
       twoSide: {
         type: Number,
-        default: 0,
+        required: true, // ✅ required now
         min: 0,
       },
     },
 
+    // optional: you can keep defaults as 0
     printPriceDiscount: {
       oneSide: {
         type: Number,
@@ -51,10 +50,22 @@ const printPriceSchema = new mongoose.Schema(
       },
     },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-// Export the model
+// ✅ normalize title before saving (helps avoid "A4 " vs "a4")
+printPriceSchema.pre("save", function (next) {
+  if (this.title) this.title = this.title.trim();
+  next();
+});
+
+// ✅ also normalize title for findOneAndUpdate (used by findByIdAndUpdate)
+printPriceSchema.pre("findOneAndUpdate", function (next) {
+  const update = this.getUpdate() || {};
+  if (update.title) update.title = String(update.title).trim();
+  if (update.$set?.title) update.$set.title = String(update.$set.title).trim();
+  this.setUpdate(update);
+  next();
+});
+
 module.exports = mongoose.model("Pprice", printPriceSchema);
