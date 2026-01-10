@@ -1,50 +1,61 @@
-const multer = require('multer');
-const sharp = require('sharp');
-const path = require('path');
-const fs = require('fs-extra');
+const multer = require("multer");
+const sharp = require("sharp");
 
-
-// Multer file filter
+// ============================
+// Shared config
+// ============================
 const multerStorage = multer.memoryStorage();
+
 const multerFilter = (req, file, cb) => {
-  if (file.mimetype.startsWith('image')) {
+  if (file.mimetype.startsWith("image")) {
     cb(null, true);
   } else {
-    cb({ message: 'Unsupported file format' }, false);
+    cb({ message: "Unsupported file format" }, false);
   }
 };
 
-// Multer upload middleware
+// ============================
+// PRODUCT UPLOAD (resize to 800x800)
+// ============================
 const uploadPhoto = multer({
   storage: multerStorage,
   fileFilter: multerFilter,
-  limits: { fileSize: 2 * 1024 * 1024 }, // 2 MB size limit
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB for products
 });
 
-
-
-// Middleware to resize images
 const productImgResize = async (req, res, next) => {
   try {
     if (!req.files || req.files.length === 0) return next();
 
-    await Promise.all(req.files.map(async (file) => {
-      const filename = `product-${Date.now()}-${Math.round(Math.random() * 1e9)}.jpeg`;
+    await Promise.all(
+      req.files.map(async (file) => {
+        const resizedImageBuffer = await sharp(file.buffer)
+          .resize(800, 800)
+          .jpeg({ quality: 80 })
+          .toBuffer();
 
-      const resizedImageBuffer = await sharp(file.buffer)
-        .resize(800, 800) // Resize to 800x800
-        .jpeg({ quality: 80 }) // Set quality to 80%
-        .toBuffer();
-
-      file.buffer = resizedImageBuffer;
-      file.filename = filename; // Assign the resized filename to the file object
-    }));
+        file.buffer = resizedImageBuffer;
+      })
+    );
 
     next();
   } catch (error) {
-    console.error('Error handling images:', error);
+    console.error("Error resizing product images:", error);
     next(error);
   }
 };
 
-module.exports = { uploadPhoto, productImgResize };
+// ============================
+// POST UPLOAD (NO resize, original dimensions)
+// ============================
+const uploadPostPhoto = multer({
+  storage: multerStorage,
+  fileFilter: multerFilter,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB for posts
+});
+
+module.exports = {
+  uploadPhoto,       // for products
+  productImgResize,  // for products
+  uploadPostPhoto,   // for posts (original size)
+};
