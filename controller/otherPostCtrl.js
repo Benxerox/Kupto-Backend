@@ -1,32 +1,53 @@
 const OtherPost = require("../models/otherPostModel");
 const asyncHandler = require("express-async-handler");
-const slugify = require("slugify");
 const validateMongoDbId = require("../utils/validateMongodbid");
-
-const makeSlug = (title = "") =>
-  slugify(String(title), { lower: true, strict: true, trim: true });
 
 const isMongoId = (val) => /^[0-9a-fA-F]{24}$/.test(String(val || ""));
 
+// ✅ helper: normalize images coming from frontend
+const normalizeImages = (images = []) => {
+  if (!Array.isArray(images)) return [];
+
+  return images
+    .map((img, idx) => {
+      // allow url or imageUrl from frontend
+      const imageUrl = img?.imageUrl || img?.url || "";
+
+      return {
+        imageUrl,
+        public_id: img?.public_id || "",
+        caption: img?.caption || "",
+        link: img?.link || "",
+        order:
+          typeof img?.order === "number"
+            ? img.order
+            : typeof img?.order === "string" && img.order !== ""
+            ? Number(img.order)
+            : idx, // fallback to index ordering
+      };
+    })
+    .filter((img) => !!img.imageUrl); // keep only valid ones
+};
+
 /* =========================
    CREATE
+   POST /api/post
 ========================= */
 const createPost = asyncHandler(async (req, res) => {
   try {
-    // ✅ ensure slug exists if title provided
-    if (req.body?.title) {
-      const slug = makeSlug(req.body.title);
-      req.body.slug = slug;
+    const images = normalizeImages(req.body?.images);
+    const isActive =
+      typeof req.body?.isActive === "boolean" ? req.body.isActive : true;
 
-      const existing = await OtherPost.findOne({ slug });
-      if (existing) {
-        return res
-          .status(400)
-          .json({ success: false, message: "Slug already exists" });
-      }
+    if (!images.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Please add at least one image (imageUrl is required).",
+      });
     }
 
-    const newPost = await OtherPost.create(req.body);
+    const newPost = await OtherPost.create({ images, isActive });
+
     res.status(201).json({ success: true, newPost });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -35,34 +56,41 @@ const createPost = asyncHandler(async (req, res) => {
 
 /* =========================
    UPDATE
+   PUT /api/post/:id
 ========================= */
 const updatePost = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
 
   try {
-    // ✅ if title changes, update slug and ensure uniqueness excluding current doc
-    if (req.body?.title) {
-      const slug = makeSlug(req.body.title);
-      req.body.slug = slug;
+    const updateData = {};
 
-      const existing = await OtherPost.findOne({ slug, _id: { $ne: id } });
-      if (existing) {
-        return res
-          .status(400)
-          .json({ success: false, message: "Slug already exists" });
+    // ✅ if images is provided, normalize and validate
+    if (req.body?.images !== undefined) {
+      const images = normalizeImages(req.body.images);
+
+      if (!images.length) {
+        return res.status(400).json({
+          success: false,
+          message: "Images array cannot be empty. Add at least one image.",
+        });
       }
+
+      updateData.images = images;
     }
 
-    const updatedPost = await OtherPost.findByIdAndUpdate(id, req.body, {
+    // ✅ optional: allow toggling active
+    if (req.body?.isActive !== undefined) {
+      updateData.isActive = Boolean(req.body.isActive);
+    }
+
+    const updatedPost = await OtherPost.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
     });
 
     if (!updatedPost) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Post not found" });
+      return res.status(404).json({ success: false, message: "Post not found" });
     }
 
     res.status(200).json({ success: true, updatedPost });
@@ -77,6 +105,7 @@ const updatePost = asyncHandler(async (req, res) => {
 
 /* =========================
    DELETE
+   DELETE /api/post/:id
 ========================= */
 const deletePost = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -86,9 +115,7 @@ const deletePost = asyncHandler(async (req, res) => {
     const deletedPost = await OtherPost.findByIdAndDelete(id);
 
     if (!deletedPost) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Post not found" });
+      return res.status(404).json({ success: false, message: "Post not found" });
     }
 
     res.status(200).json({ success: true, deletedPost });
@@ -98,21 +125,22 @@ const deletePost = asyncHandler(async (req, res) => {
 });
 
 /* =========================
-   GET ONE (id OR slug)
+   GET ONE
+   GET /api/post/:id
 ========================= */
 const getaPost = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   try {
-    let post = null;
-
-    if (isMongoId(id)) {
-      validateMongoDbId(id);
-      post = await OtherPost.findById(id);
-    } else {
-      // treat as slug
-      post = await OtherPost.findOne({ slug: String(id).toLowerCase().trim() });
+    if (!isMongoId(id)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid post id" });
     }
+
+    validateMongoDbId(id);
+
+    const post = await OtherPost.findById(id);
 
     if (!post) {
       return res.status(404).json({ success: false, message: "Post not found" });
@@ -129,7 +157,9 @@ const getaPost = asyncHandler(async (req, res) => {
 });
 
 /* =========================
-   GET ALL (filter/sort/fields/paginate)
+   GET ALL
+   GET /api/post
+   supports sort/page/limit/fields + basic filters
 ========================= */
 const getAllPost = asyncHandler(async (req, res) => {
   try {
@@ -139,11 +169,7 @@ const getAllPost = asyncHandler(async (req, res) => {
     excludeFields.forEach((el) => delete queryObj[el]);
 
     let queryStr = JSON.stringify(queryObj);
-    queryStr = queryStr.replace(
-      /\b(gte|gt|lte|lt)\b/g,
-      (match) => `$${match}`
-    );
-
+    queryStr = queryStr.replace(/\b(gte|gt|lte|lt)\b/g, (m) => `$${m}`);
     const filter = JSON.parse(queryStr);
 
     let query = OtherPost.find(filter);
