@@ -24,6 +24,7 @@ const couponRouter = require('./routes/couponRoute');
 const enquiryRouter = require('./routes/enqRoute');
 const uploadRouter = require('./routes/uploadRoute');
 const uploadFileRouter = require('./routes/uploadFileRoute');
+const uploadPostRouter = require("./routes/uploadPostRoute");
 const { v4: uuidv4 } = require('uuid'); // Import UUID package
 
 // Middlewares
@@ -285,6 +286,7 @@ app.use('/api/coupon', couponRouter);
 app.use('/api/enquiry', enquiryRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/uploadFile', uploadFileRouter);
+app.use("/api/upload/post", uploadPostRouter);
 
 
 // Root route

@@ -1,132 +1,169 @@
-const { cloudinaryUploadImg, cloudinaryDeleteImg, cloudinaryUploadFile, cloudinaryDeleteFile, cloudinaryDownloadFile } = require('../utils/cloudinary');
-const fs = require('fs');
-const asyncHandler = require('express-async-handler');
+const {
+  cloudinaryUploadImg,
+  cloudinaryDeleteImg,
+  cloudinaryUploadFile,
+  cloudinaryDeleteFile,
+  cloudinaryDownloadFile,
+} = require("../utils/cloudinary");
 
-// Upload images
+const fs = require("fs");
+const asyncHandler = require("express-async-handler");
+
+/* =========================
+   HELPERS
+========================= */
+const normalizeDocPublicId = (idOrPublicId = "") => {
+  const val = String(idOrPublicId).trim();
+  if (!val) return "";
+
+  // If client already sends full public_id, keep it
+  if (val.startsWith("folders/documents/")) return val;
+
+  // Otherwise treat it as the base id (slug/name)
+  return `folders/documents/${val}`;
+};
+
+/* =========================
+   UPLOAD IMAGES
+========================= */
 const uploadImages = asyncHandler(async (req, res) => {
   const files = req.files;
 
   if (!files || files.length === 0) {
-    return res.status(400).json({ message: 'No files uploaded. Please upload at least one image.' });
+    return res
+      .status(400)
+      .json({ message: "No files uploaded. Please upload at least one image." });
   }
 
-  // Validating file types (only allow images)
-  const validImageTypes = ['image/jpeg', 'image/png', 'image/gif'];
-  const invalidFiles = files.filter(file => !validImageTypes.includes(file.mimetype));
+  // ✅ allow WEBP too
+  const validImageTypes = [
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+  ];
 
+  const invalidFiles = files.filter((file) => !validImageTypes.includes(file.mimetype));
   if (invalidFiles.length > 0) {
     return res.status(400).json({
-      message: 'Invalid file type. Only image files (JPEG, PNG, GIF) are allowed.',
+      message: "Invalid file type. Only image files (JPEG, PNG, GIF, WEBP) are allowed.",
     });
   }
-
-  const uploader = (file) => cloudinaryUploadImg(file.buffer, file.originalname); // Include original filename
-  const uploadedImages = [];
 
   try {
     const uploadPromises = files.map(async (file) => {
-      const { url, public_id } = await uploader(file); // Upload directly to Cloudinary
+      const { url, public_id } = await cloudinaryUploadImg(
+        file.buffer,
+        file.originalname
+      );
       return { url, public_id };
     });
 
-    uploadedImages.push(...await Promise.all(uploadPromises));
+    const uploadedImages = await Promise.all(uploadPromises);
     res.json({ uploadedImages });
   } catch (error) {
-    console.error('Error during image upload:', error);
+    console.error("Error during image upload:", error);
     res.status(500).json({
-      message: 'Failed to upload images.',
-      error: error.message || 'Unknown error occurred.',
+      message: "Failed to upload images.",
+      error: error.message || "Unknown error occurred.",
     });
   }
 });
 
-
-// Delete image
+/* =========================
+   DELETE IMAGE
+========================= */
 const deleteImages = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  if (!id) {
-    return res.status(400).json({ message: 'No image id provided.' });
-  }
+  if (!id) return res.status(400).json({ message: "No image id provided." });
 
   try {
-    const result = await cloudinaryDeleteImg(id, 'image');
-    
-    if (result && result.result === 'ok') {
-      return res.json({ message: 'Image deleted successfully' });
+    const result = await cloudinaryDeleteImg(id, "image");
+
+    if (result?.result === "ok") {
+      return res.json({ message: "Image deleted successfully" });
     }
 
-    res.status(404).json({ message: 'Image not found or could not be deleted' });
+    res.status(404).json({ message: "Image not found or could not be deleted" });
   } catch (error) {
-    console.error('Error deleting image:', error);
-    res.status(500).json({ message: 'Failed to delete image.', error: error.message });
+    console.error("Error deleting image:", error);
+    res.status(500).json({ message: "Failed to delete image.", error: error.message });
   }
 });
 
-// Upload files
+/* =========================
+   UPLOAD FILES (PDF/DOCS)
+========================= */
 const uploadFiles = asyncHandler(async (req, res) => {
   const files = req.files;
   if (!files || files.length === 0) {
-    return res.status(400).json({ message: 'No files uploaded' });
+    return res.status(400).json({ message: "No files uploaded" });
   }
 
-  const uploadPromises = files.map(async (file) => {
-    const filePath = file.path;
-    const fileName = file.originalname;
-    const { url, public_id } = await cloudinaryUploadFile(filePath, fileName);
-    await fs.promises.unlink(filePath); // Cleanup local file after upload
-    return { url, public_id, fileName };
-  });
-
   try {
+    const uploadPromises = files.map(async (file) => {
+      const filePath = file.path;
+      const fileName = file.originalname;
+
+      const { url, public_id } = await cloudinaryUploadFile(filePath, fileName);
+
+      // ✅ cleanup local upload
+      await fs.promises.unlink(filePath);
+
+      // ✅ return the real cloudinary public_id (folders/documents/xxx)
+      return { url, public_id, fileName };
+    });
+
     const uploadedFiles = await Promise.all(uploadPromises);
-    res.json(uploadedFiles); // Send response with the uploaded file info
+    res.json(uploadedFiles);
   } catch (error) {
-    console.error('Error during file upload:', error);
-    res.status(500).json({ message: 'Failed to upload files', error: error.message });
+    console.error("Error during file upload:", error);
+    res.status(500).json({ message: "Failed to upload files", error: error.message });
   }
 });
 
-// Delete file
+/* =========================
+   DELETE FILE
+   ✅ Accepts either:
+   - full public_id: folders/documents/company-profile-v2
+   - or just: company-profile-v2
+========================= */
 const deleteFile = asyncHandler(async (req, res) => {
-  const publicId = `folders/documents/${req.params.id}`;  // Add the folder path to the public_id
-  const resourceType = req.query.resource_type || 'raw';  // Default to 'raw' if not provided
+  const resourceType = req.query.resource_type || "raw";
+  const publicId = normalizeDocPublicId(req.params.id);
+
+  if (!publicId) return res.status(400).json({ message: "No file id provided." });
 
   try {
-    // Attempt to delete the file from Cloudinary
     const result = await cloudinaryDeleteFile(publicId, resourceType);
 
-    if (result.result === 'ok') {
-      res.json({ message: 'File deleted successfully' });
-    } else {
-      res.status(404).json({ message: 'File not found or could not be deleted' });
-    }
+    if (result?.result === "ok") return res.json({ message: "File deleted successfully" });
+
+    res.status(404).json({ message: "File not found or could not be deleted" });
   } catch (error) {
-    console.error('Error deleting file:', error);
-    res.status(500).json({ message: 'Failed to delete file', error: error.message });
+    console.error("Error deleting file:", error);
+    res.status(500).json({ message: "Failed to delete file", error: error.message });
   }
 });
 
+/* =========================
+   DOWNLOAD FILE
+========================= */
 const downloadFile = asyncHandler(async (req, res) => {
-  const { id } = req.params;  // Extract the file ID from the URL parameter
-  const resourceType = req.query.resource_type || 'raw';  // Default to 'raw' if not specified
+  const resourceType = req.query.resource_type || "raw";
+  const publicId = normalizeDocPublicId(req.params.id);
 
-  // Construct the Cloudinary public ID based on the path
-  const publicId = `folders/documents/${id}`;  // e.g., "folders/documents/ojnul8uxwfd.pdf"
+  if (!publicId) return res.status(400).json({ message: "No file id provided." });
 
   try {
-    // Fetch the download URL from Cloudinary
     const fileUrl = await cloudinaryDownloadFile(publicId, resourceType);
-
-    // Redirect to the Cloudinary URL (user will be redirected to download the file)
-    res.redirect(fileUrl);  // This will redirect the user to the file URL for download
+    res.redirect(fileUrl);
   } catch (error) {
-    console.error('Error during file download:', error);
-
-    // Send an error response in case of failure
+    console.error("Error during file download:", error);
     res.status(500).json({
-      message: 'Failed to download file',
-      error: error.message
+      message: "Failed to download file",
+      error: error.message,
     });
   }
 });
