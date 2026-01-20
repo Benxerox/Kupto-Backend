@@ -14,6 +14,10 @@ const sendEmail = require('./emailCtrl');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 
+const { OAuth2Client } = require("google-auth-library");
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
 
 
 
@@ -66,6 +70,86 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
     email: findUser.email,
     mobile: findUser.mobile,
     token: generateToken(findUser._id),  // Access token
+  });
+});
+
+const googleLoginCtrl = asyncHandler(async (req, res) => {
+  const { credential } = req.body; // ID token from frontend
+
+  if (!credential) {
+    res.status(400);
+    throw new Error("Missing Google credential");
+  }
+
+  // ✅ Verify the ID token with Google public keys
+  const ticket = await googleClient.verifyIdToken({
+    idToken: credential,
+    audience: process.env.GOOGLE_CLIENT_ID,
+  });
+
+  const payload = ticket.getPayload();
+
+  const googleId = payload?.sub;
+  const email = payload?.email;
+  const emailVerified = payload?.email_verified;
+  const fullName = payload?.name || "";
+  const picture = payload?.picture || "";
+
+  if (!email || !emailVerified) {
+    res.status(401);
+    throw new Error("Google email is not verified");
+  }
+
+  // ✅ Find existing user by email
+  let user = await User.findOne({ email });
+
+  // ✅ If no user, create one
+  if (!user) {
+    const parts = String(fullName).trim().split(" ");
+    const firstname = parts[0] || "Kupto";
+    const lastname = parts.slice(1).join(" ") || "User";
+
+    // IMPORTANT:
+    // Your schema probably requires password; but you don't want password for Google users.
+    // If your schema requires password, set a random strong password OR update schema to allow null.
+    const randomPass = crypto.randomBytes(32).toString("hex");
+
+    user = await User.create({
+      firstname,
+      lastname,
+      email,
+      password: randomPass, // ✅ prevents schema validation failure if password is required
+      // optional if your schema has these:
+      googleId,
+      // avatar: picture,
+      // mobile: "", // if required by schema, set empty or handle later
+    });
+  } else {
+    // Optional: keep googleId updated if your schema has it
+    if (!user.googleId) {
+      user.googleId = googleId;
+      await user.save();
+    }
+  }
+
+  // ✅ same login behavior as your email/password login:
+  const refreshToken = generateRefreshToken(user._id);
+  user.refreshToken = refreshToken;
+  await user.save();
+
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 72 * 60 * 60 * 1000,
+  });
+
+  res.json({
+    id: user._id,
+    firstname: user.firstname,
+    lastname: user.lastname,
+    email: user.email,
+    mobile: user.mobile,
+    token: generateToken(user._id),
   });
 });
 
@@ -1119,6 +1203,7 @@ const removeProductFromWishlist = asyncHandler(async (req, res) => {
 module.exports = { 
   createUser,
   loginUserCtrl, 
+  googleLoginCtrl,
   getallUser, 
   getaUser, 
   deleteaUser, 
