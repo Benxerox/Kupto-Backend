@@ -43,6 +43,8 @@ const {
   getYearlyTotalOrders,
   googleLoginCtrl,
   identifyUserCtrl,
+  verifyCodeCtrl,
+  sendVerificationCodeCtrl,
 } = require("../controller/userCtrl");
 
 const { authMiddleware, isAdmin } = require("../middlewares/authMiddleware");
@@ -101,6 +103,10 @@ router.delete("/empty-cart", authMiddleware, emptyCart);
 router.post("/order/checkout", authMiddleware, checkout);
 router.post("/order/paymentVerification", authMiddleware, paymentVerification);
 
+router.post("/send-verification-code", sendVerificationCodeCtrl);
+router.post("/verify-code", verifyCodeCtrl);
+
+
 router.post("/cart/create-order", authMiddleware, createOrder);
 router.get("/getmyorders", authMiddleware, getMyOrders);
 
@@ -130,5 +136,6 @@ router.put("/updateOrder/:id", authMiddleware, isAdmin, updateOrder);
 ========================= */
 router.get("/:id", authMiddleware, isAdmin, getaUser);
 router.delete("/:id", authMiddleware, isAdmin, deleteaUser);
+
 
 module.exports = router;

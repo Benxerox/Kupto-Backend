@@ -1227,6 +1227,110 @@ const removeProductFromWishlist = asyncHandler(async (req, res) => {
   }
 });
 
+// ============================
+// ✅ OTP / Verification Code
+// ============================
+
+// In-memory OTP store (quick fix). In production: store in DB or Redis.
+const OTP_STORE = new Map(); 
+// key: "email:someone@x.com" or "phone:+2567xxxxxxx"
+// value: { code, expiresAt }
+
+const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
+
+const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
+  const { identity, type } = req.body;
+
+  if (!identity || !type) {
+    return res.status(400).json({ message: "identity and type are required" });
+  }
+
+  const normalized =
+    type === "email"
+      ? String(identity).trim().toLowerCase()
+      : String(identity).trim();
+
+  const code = generateOtp();
+  const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+  const key = `${type}:${normalized}`;
+  OTP_STORE.set(key, { code, expiresAt });
+
+  // ✅ SEND to email (for email type)
+  if (type === "email") {
+    const data = {
+      to: normalized,
+      subject: "Kupto verification code",
+      text: `Your Kupto verification code is ${code}. It expires in 10 minutes.`,
+      html: `<p>Your Kupto verification code is <b>${code}</b>. It expires in 10 minutes.</p>`,
+    };
+
+    await sendEmail(data);
+
+    return res.status(200).json({
+      success: true,
+      message: "Verification code sent to email",
+      type,
+      normalized,
+    });
+  }
+
+  // ✅ For phone: you must integrate an SMS provider (Africa's Talking, Twilio, etc.)
+  // For now, return a message so frontend works.
+  return res.status(200).json({
+    success: true,
+    message:
+      "Verification code generated. (SMS sending not configured yet)",
+    type,
+    normalized,
+    // ⚠️ remove this in production
+    debugCode: code,
+  });
+});
+
+const verifyCodeCtrl = asyncHandler(async (req, res) => {
+  const { identity, type, code } = req.body;
+
+  if (!identity || !type || !code) {
+    return res
+      .status(400)
+      .json({ message: "identity, type and code are required" });
+  }
+
+  const normalized =
+    type === "email"
+      ? String(identity).trim().toLowerCase()
+      : String(identity).trim();
+
+  const key = `${type}:${normalized}`;
+  const saved = OTP_STORE.get(key);
+
+  if (!saved) {
+    return res.status(400).json({ message: "Code not found. Please resend." });
+  }
+
+  if (Date.now() > saved.expiresAt) {
+    OTP_STORE.delete(key);
+    return res.status(400).json({ message: "Code expired. Please resend." });
+  }
+
+  if (String(code).trim() !== saved.code) {
+    return res.status(400).json({ message: "Invalid code" });
+  }
+
+  // ✅ success
+  OTP_STORE.delete(key);
+
+  return res.status(200).json({
+    success: true,
+    message: "Code verified",
+    next: "signup", // or "login" based on your flow
+    type,
+    normalized,
+  });
+});
+
+
 
 
 
@@ -1263,5 +1367,7 @@ module.exports = {
   getAllOrders,
   getSingleOrders,
   updateOrder,
+  sendVerificationCodeCtrl,
+  verifyCodeCtrl,
 
 };
