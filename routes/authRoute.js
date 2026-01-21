@@ -42,6 +42,7 @@ const {
   getMonthWiseOrderIncome,
   getYearlyTotalOrders,
   googleLoginCtrl,
+  identifyUserCtrl,
 } = require("../controller/userCtrl");
 
 const { authMiddleware, isAdmin } = require("../middlewares/authMiddleware");
@@ -53,6 +54,7 @@ const router = express.Router();
    AUTH
 ========================= */
 router.post("/google", googleLoginCtrl);
+router.post("/identify", identifyUserCtrl);
 router.post("/register", createUser);
 router.post("/login", loginUserCtrl);
 router.post("/admin-login", loginAdmin);

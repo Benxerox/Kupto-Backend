@@ -153,6 +153,37 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
   });
 });
 
+
+const identifyUserCtrl = asyncHandler(async (req, res) => {
+  const { identity, type } = req.body;
+
+  if (!identity) {
+    return res.status(400).json({ exists: false, message: "identity is required" });
+  }
+
+  let query = {};
+
+  if (type === "email") {
+    query.email = String(identity).trim().toLowerCase();
+  } else if (type === "phone") {
+    // if you store phone as "mobile"
+    query.mobile = String(identity).trim();
+  } else {
+    // fallback: detect automatically
+    const v = String(identity).trim();
+    if (v.includes("@")) query.email = v.toLowerCase();
+    else query.mobile = v;
+  }
+
+  const user = await User.findOne(query).select("_id email mobile");
+
+  return res.status(200).json({
+    exists: Boolean(user),
+    type: query.email ? "email" : "phone",
+    normalized: query.email ? query.email : query.mobile,
+  });
+});
+
 //admin login
 const loginAdmin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
@@ -1204,6 +1235,7 @@ module.exports = {
   createUser,
   loginUserCtrl, 
   googleLoginCtrl,
+  identifyUserCtrl,
   getallUser, 
   getaUser, 
   deleteaUser, 
