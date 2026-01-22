@@ -25,6 +25,7 @@ const enquiryRouter = require('./routes/enqRoute');
 const uploadRouter = require('./routes/uploadRoute');
 const uploadFileRouter = require('./routes/uploadFileRoute');
 const uploadPostRouter = require("./routes/uploadPostRoute");
+const otpRouter = require("./routes/otpRoute");
 
 const { v4: uuidv4 } = require('uuid'); // Import UUID package
 
@@ -288,6 +289,7 @@ app.use('/api/enquiry', enquiryRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/uploadFile', uploadFileRouter);
 app.use("/api/upload/post", uploadPostRouter);
+app.use("/api/otp", otpRouter);
 
 
 // Root route
