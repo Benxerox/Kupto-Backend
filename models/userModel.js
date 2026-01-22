@@ -12,16 +12,19 @@ var userSchema = new mongoose.Schema({
       type:String,
       required:true,
   },
-    email:{
-        type:String,
-        required:true,
-        unique:true,
+    // ✅ optional email (unique only if provided)
+    email: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      unique: true,
+      sparse: true, // ✅ allows multiple docs with missing email
     },
-    mobile:{
-        type:String,
-        required:true,
-        unique:true,
-    },
+    // ✅ required phone
+    mobile: { type: String, required: true, unique: true, trim: true },
+
+    // ✅ add dob because you use it
+    dob: { type: Date, required: true },
     password:{
         type:String,
         required:true,

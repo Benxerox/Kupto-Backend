@@ -1,9 +1,13 @@
 // routes/userRoute.js
 const express = require("express");
+const router = express.Router();
 
 const {
-  createUser,
+  // AUTH
+  registerUserCtrl, // (if you later rename in ctrl, update here too)
   loginUserCtrl,
+  googleLoginCtrl,
+  identifyUserCtrl,
   loginAdmin,
   handleRefreshToken,
   logout,
@@ -11,53 +15,55 @@ const {
   forgotPasswordToken,
   resetPassword,
 
+  // PROFILE
   updatedUser,
   saveAddress,
 
+  // WISHLIST
   getWishlist,
   removeProductFromWishlist,
 
+  // CART
   userCart,
   getUserCart,
   updateProductQuantityFromCart,
   removeProductFromCart,
   emptyCart,
 
+  // ORDERS (USER)
   createOrder,
   getMyOrders,
 
-  // admin/order
+  // ADMIN: ORDERS
   getAllOrders,
   getSingleOrders,
   updateOrder,
 
-  // admin/users
+  // ADMIN: USERS
   getallUser,
   getaUser,
   deleteaUser,
   blockUser,
   unblockUser,
 
-  // analytics
+  // ANALYTICS
   getMonthWiseOrderIncome,
   getYearlyTotalOrders,
-  googleLoginCtrl,
-  identifyUserCtrl,
-  verifyCodeCtrl,
+
+  // OTP
   sendVerificationCodeCtrl,
+  verifyCodeCtrl,
 } = require("../controller/userCtrl");
 
 const { authMiddleware, isAdmin } = require("../middlewares/authMiddleware");
 const { checkout, paymentVerification } = require("../controller/paymentCtrl");
-
-const router = express.Router();
 
 /* =========================
    AUTH
 ========================= */
 router.post("/google", googleLoginCtrl);
 router.post("/identify", identifyUserCtrl);
-router.post("/register", createUser);
+router.post("/register", registerUserCtrl);
 router.post("/login", loginUserCtrl);
 router.post("/admin-login", loginAdmin);
 
@@ -67,6 +73,13 @@ router.get("/logout", logout);
 router.post("/forgot-password-token", forgotPasswordToken);
 router.put("/reset-password/:token", resetPassword);
 router.put("/password", authMiddleware, updatePassword);
+
+/* =========================
+   OTP (NO AUTH)
+   ✅ keep outside auth (users need OTP before login)
+========================= */
+router.post("/send-verification-code", sendVerificationCodeCtrl);
+router.post("/verify-code", verifyCodeCtrl);
 
 /* =========================
    PROFILE
@@ -85,16 +98,19 @@ router.delete("/wishlist/:prodId", authMiddleware, removeProductFromWishlist);
 ========================= */
 router.post("/cart", authMiddleware, userCart);
 router.get("/cart", authMiddleware, getUserCart);
+
 router.put(
   "/update-product-cart/:cartItemId/:newQuantity",
   authMiddleware,
   updateProductQuantityFromCart
 );
+
 router.delete(
   "/delete-product-cart/:cartItemId",
   authMiddleware,
   removeProductFromCart
 );
+
 router.delete("/empty-cart", authMiddleware, emptyCart);
 
 /* =========================
@@ -103,17 +119,17 @@ router.delete("/empty-cart", authMiddleware, emptyCart);
 router.post("/order/checkout", authMiddleware, checkout);
 router.post("/order/paymentVerification", authMiddleware, paymentVerification);
 
-router.post("/send-verification-code", sendVerificationCodeCtrl);
-router.post("/verify-code", verifyCodeCtrl);
-
-
 router.post("/cart/create-order", authMiddleware, createOrder);
 router.get("/getmyorders", authMiddleware, getMyOrders);
 
 /* =========================
    ANALYTICS
 ========================= */
-router.get("/getMonthWiseOrderIncome", authMiddleware, getMonthWiseOrderIncome);
+router.get(
+  "/getMonthWiseOrderIncome",
+  authMiddleware,
+  getMonthWiseOrderIncome
+);
 router.get("/getyearlyorders", authMiddleware, getYearlyTotalOrders);
 
 /* =========================
@@ -136,6 +152,5 @@ router.put("/updateOrder/:id", authMiddleware, isAdmin, updateOrder);
 ========================= */
 router.get("/:id", authMiddleware, isAdmin, getaUser);
 router.delete("/:id", authMiddleware, isAdmin, deleteaUser);
-
 
 module.exports = router;
