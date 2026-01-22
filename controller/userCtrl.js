@@ -28,13 +28,12 @@ const normalizeEmail = (v) => String(v || "").trim().toLowerCase();
 // Accepts: "070...", "7...", "2567...", "+2567...", "00 2567..."
 const normalizeMobile = (raw = "") => {
   let s = String(raw || "").trim().replace(/[^\d+]/g, "");
-
   if (!s) return "";
 
   // 00... -> +...
   if (s.startsWith("00")) s = "+" + s.slice(2);
 
-  // +256... is already E.164 (Uganda)
+  // +256... already Uganda
   if (s.startsWith("+256")) return s;
 
   // 2567... -> +2567...
@@ -46,7 +45,7 @@ const normalizeMobile = (raw = "") => {
     return `+256${rest}`;
   }
 
-  // 7xxxxxxx typed without 0/256 (common)
+  // 7xxxxxxx typed without 0/256
   if (/^\d+$/.test(s) && s.length >= 7 && s.length <= 9) return `+256${s}`;
 
   // If it already has + (non-Ug), keep it
@@ -60,36 +59,48 @@ const isMongoDupError = (err) =>
   err && (err.code === 11000 || err?.name === "MongoServerError");
 
 // ✅ Cookie options
-// If your frontend is on kupto.co and API on api.kupto.co (cross-site),
-// you usually need sameSite:"none" + secure:true in production.
-// We'll automatically set it based on env flags.
+// - If frontend is on kupto.co and API on api.kupto.co (cross-site),
+//   you need sameSite:"none" + secure:true in production.
+// - Add path to make clearing consistent.
+// - Optionally add COOKIE_DOMAIN (e.g. ".kupto.co") if you want subdomain sharing.
 const getCookieOptions = () => {
   const isProd = process.env.NODE_ENV === "production";
-  const isCrossSite = String(process.env.CROSS_SITE_COOKIES || "").toLowerCase() === "true";
+  const isCrossSite =
+    String(process.env.CROSS_SITE_COOKIES || "").toLowerCase() === "true";
+  const cookieDomain = process.env.COOKIE_DOMAIN; // e.g. ".kupto.co" or leave undefined
 
-  // If cross-site cookies needed (recommended for kupto.co -> api.kupto.co):
+  const base = {
+    httpOnly: true,
+    path: "/", // ✅ important for consistent clearCookie
+    maxAge: 72 * 60 * 60 * 1000,
+    ...(cookieDomain ? { domain: cookieDomain } : {}),
+  };
+
   if (isProd && isCrossSite) {
     return {
-      httpOnly: true,
+      ...base,
       secure: true,
       sameSite: "none",
-      maxAge: 72 * 60 * 60 * 1000,
     };
   }
 
-  // default (works for same-site setups)
   return {
-    httpOnly: true,
+    ...base,
     secure: isProd,
     sameSite: "lax",
-    maxAge: 72 * 60 * 60 * 1000,
   };
 };
 
+// helper to avoid leaking auth details
+const invalidCreds = (res) => {
+  res.status(401);
+  throw new Error("Invalid Credentials");
+};
+
 // ============================
-// ✅ REGISTER (replaces createUser)
-// Matches your schema: firstname, lastname, mobile, dob, password required; email optional
-// NOTE: returns token too (so frontend can store "customer" like before)
+// ✅ REGISTER
+// Matches schema: firstname, lastname, mobile, dob, password required; email optional
+// Returns token (frontend expects)
 // ============================
 const registerUserCtrl = asyncHandler(async (req, res) => {
   const { firstname, lastname, email, mobile, dob, password } = req.body;
@@ -107,7 +118,7 @@ const registerUserCtrl = asyncHandler(async (req, res) => {
     throw new Error("mobile is not valid");
   }
 
-  // ✅ prevent duplicates by email OR phone
+  // prevent duplicates by email OR phone
   const or = [{ mobile: cleanMobile }];
   if (cleanEmail) or.push({ email: cleanEmail });
 
@@ -127,13 +138,13 @@ const registerUserCtrl = asyncHandler(async (req, res) => {
       password, // hashed by pre-save hook
     });
 
-    // ✅ create refresh token cookie like login
+    // create refresh token cookie like login
     const refreshToken = generateRefreshToken(newUser._id);
-    await User.findByIdAndUpdate(newUser._id, { refreshToken }, { new: true });
+    newUser.refreshToken = refreshToken;
+    await newUser.save();
 
     res.cookie("refreshToken", refreshToken, getCookieOptions());
 
-    // ✅ return what frontend expects (token etc.)
     return res.status(201).json({
       success: true,
       id: newUser._id,
@@ -177,21 +188,13 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
       ? { email: normalizeEmail(incomingIdentity) }
       : { mobile: normalizeMobile(incomingIdentity) };
 
-  // Debug helpers (optional)
-  // console.log("LOGIN incoming:", { incomingIdentity, incomingType });
-  // console.log("LOGIN query:", query);
+  // ✅ Important: ensure password is available even if schema later uses select:false
+  const user = await User.findOne(query).select("+password");
 
-  const user = await User.findOne(query);
-  if (!user) {
-    res.status(401);
-    throw new Error("Invalid Credentials");
-  }
+  if (!user) return invalidCreds(res);
 
   const ok = await user.isPasswordMatched(password);
-  if (!ok) {
-    res.status(401);
-    throw new Error("Invalid Credentials");
-  }
+  if (!ok) return invalidCreds(res);
 
   const refreshToken = generateRefreshToken(user._id);
   user.refreshToken = refreshToken;
@@ -213,7 +216,7 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
 // ============================
 // ✅ GOOGLE LOGIN
 // If user exists -> login
-// If not exists -> return profileRequired:true (frontend should collect mobile + dob then call /register)
+// If not exists -> profileRequired:true (frontend collects mobile + dob then calls /register)
 // ============================
 const googleLoginCtrl = asyncHandler(async (req, res) => {
   const { credential } = req.body;
@@ -242,10 +245,8 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
   }
 
   const cleanEmail = normalizeEmail(email);
-
   let user = await User.findOne({ email: cleanEmail });
 
-  // If no user, ask frontend to complete profile (mobile + dob)
   if (!user) {
     const parts = String(fullName).trim().split(" ");
     const firstname = parts[0] || "Kupto";
@@ -320,17 +321,17 @@ const identifyUserCtrl = asyncHandler(async (req, res) => {
 const loginAdmin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  const findAdmin = await User.findOne({ email: normalizeEmail(email) });
+  const findAdmin = await User.findOne({ email: normalizeEmail(email) }).select(
+    "+password"
+  );
+
   if (!findAdmin || findAdmin.role !== "admin") {
     res.status(403);
     throw new Error("Not Authorized");
   }
 
   const passwordMatch = await findAdmin.isPasswordMatched(password);
-  if (!passwordMatch) {
-    res.status(401);
-    throw new Error("Invalid Credentials");
-  }
+  if (!passwordMatch) return invalidCreds(res);
 
   const refreshToken = generateRefreshToken(findAdmin._id);
   findAdmin.refreshToken = refreshToken;
@@ -400,7 +401,6 @@ const logout = asyncHandler(async (req, res) => {
   }
 
   await User.findOneAndUpdate({ refreshToken }, { refreshToken: "" });
-
   res.clearCookie("refreshToken", getCookieOptions());
 
   res.sendStatus(204);
@@ -421,7 +421,6 @@ const updatedUser = asyncHandler(async (req, res) => {
       mobile: req?.body?.mobile ? normalizeMobile(req.body.mobile) : undefined,
     };
 
-    // If mobile provided but invalid
     if (req?.body?.mobile && !payload.mobile) {
       res.status(400);
       throw new Error("mobile is not valid");
@@ -434,6 +433,7 @@ const updatedUser = asyncHandler(async (req, res) => {
     const user = await User.findByIdAndUpdate(_id, payload, { new: true }).select(
       "-password -refreshToken"
     );
+
     res.json(user);
   } catch (error) {
     if (isMongoDupError(error)) {
@@ -497,11 +497,7 @@ const blockUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
 
-  const user = await User.findByIdAndUpdate(
-    id,
-    { isBlocked: true },
-    { new: true }
-  );
+  const user = await User.findByIdAndUpdate(id, { isBlocked: true }, { new: true });
   res.json(user);
 });
 
@@ -521,7 +517,7 @@ const updatePassword = asyncHandler(async (req, res) => {
   const { password } = req.body;
   validateMongoDbId(_id);
 
-  const user = await User.findById(_id);
+  const user = await User.findById(_id).select("+password");
   if (!user) {
     res.status(404);
     throw new Error("User not found");
@@ -863,7 +859,10 @@ const generateReceiptHtml = (
       const colorLabel = escapeHtml(getVariantLabel(item?.color) || "Not specified");
       const instruction = escapeHtml(item?.instruction || "None");
 
-      const uploadedFiles = Array.isArray(item?.uploadedFiles) ? item.uploadedFiles : [];
+      const uploadedFiles = Array.isArray(item?.uploadedFiles)
+        ? item.uploadedFiles
+        : [];
+
       const filesHtml = uploadedFiles.length
         ? `<div style="margin-top:8px;">
              <strong>Artwork Files:</strong>
@@ -874,11 +873,17 @@ const generateReceiptHtml = (
                      f?.fileName ||
                        f?.original_filename ||
                        f?.originalFilename ||
-                       (f?.public_id ? String(f.public_id).split("/").pop() : "file")
+                       (f?.public_id
+                         ? String(f.public_id).split("/").pop()
+                         : "file")
                    );
                    const url = f?.url ? escapeHtml(f.url) : "";
                    return `<li style="margin:4px 0;">
-                             ${url ? `<a href="${url}" target="_blank" rel="noreferrer">${name}</a>` : name}
+                             ${
+                               url
+                                 ? `<a href="${url}" target="_blank" rel="noreferrer">${name}</a>`
+                                 : name
+                             }
                            </li>`;
                  })
                  .join("")}
@@ -892,7 +897,9 @@ const generateReceiptHtml = (
             <div style="width: 120px; height: 120px; border: 1px solid #f0f0f0; border-radius: 10px; overflow:hidden; background:#fff; display:flex; align-items:center; justify-content:center;">
               ${
                 imgUrl
-                  ? `<img src="${escapeHtml(imgUrl)}" alt="${title}" style="width:100%; height:100%; object-fit:contain;" />`
+                  ? `<img src="${escapeHtml(
+                      imgUrl
+                    )}" alt="${title}" style="width:100%; height:100%; object-fit:contain;" />`
                   : `<div style="font-size:12px; color:#999; padding:8px; text-align:center;">No image</div>`
               }
             </div>
@@ -921,9 +928,21 @@ const generateReceiptHtml = (
     String(paymentInfo?.paymentMethod || "").toLowerCase() === "paypal"
       ? `
           <div style="margin-top:10px; font-size:13px; color:#222; line-height:1.7;">
-            ${paypalOrderID ? `<div><strong>PayPal Order ID:</strong> ${paypalOrderID}</div>` : ""}
-            ${paypalPaymentID ? `<div><strong>PayPal Payment ID:</strong> ${paypalPaymentID}</div>` : ""}
-            ${paypalPayerID ? `<div><strong>PayPal Payer ID:</strong> ${paypalPayerID}</div>` : ""}
+            ${
+              paypalOrderID
+                ? `<div><strong>PayPal Order ID:</strong> ${paypalOrderID}</div>`
+                : ""
+            }
+            ${
+              paypalPaymentID
+                ? `<div><strong>PayPal Payment ID:</strong> ${paypalPaymentID}</div>`
+                : ""
+            }
+            ${
+              paypalPayerID
+                ? `<div><strong>PayPal Payer ID:</strong> ${paypalPayerID}</div>`
+                : ""
+            }
           </div>
         `
       : "";
@@ -964,7 +983,9 @@ const generateReceiptHtml = (
 
           <div style="text-align:right; min-width: 220px;">
             <div style="font-size: 13px; color:#666;">Total</div>
-            <div style="font-size: 20px; font-weight: 800;">${escapeHtml(formatUGX(totalPrice))}</div>
+            <div style="font-size: 20px; font-weight: 800;">${escapeHtml(
+              formatUGX(totalPrice)
+            )}</div>
           </div>
         </div>
 
@@ -980,8 +1001,13 @@ const generateReceiptHtml = (
 // ✅ CREATE ORDER
 // ============================
 const createOrder = asyncHandler(async (req, res) => {
-  const { shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo } =
-    req.body;
+  const {
+    shippingInfo,
+    orderItems,
+    totalPrice,
+    totalPriceAfterDiscount,
+    paymentInfo,
+  } = req.body;
   const { _id } = req.user;
 
   if (!Array.isArray(orderItems) || orderItems.length === 0) {
@@ -1049,9 +1075,7 @@ const createOrder = asyncHandler(async (req, res) => {
     }
 
     safePaymentInfo.paypalOrderID = String(paypalOrderID);
-    safePaymentInfo.paypalPaymentID = paypalPaymentID
-      ? String(paypalPaymentID)
-      : null;
+    safePaymentInfo.paypalPaymentID = paypalPaymentID ? String(paypalPaymentID) : null;
     safePaymentInfo.paypalPayerID = paypalPayerID ? String(paypalPayerID) : null;
   }
 
@@ -1173,7 +1197,15 @@ const getMonthWiseOrderIncome = asyncHandler(async (req, res) => {
       },
     },
     { $sort: { "_id.year": 1, "_id.month": 1 } },
-    { $project: { _id: 0, month: "$_id.month", year: "$_id.year", amount: 1, count: 1 } },
+    {
+      $project: {
+        _id: 0,
+        month: "$_id.month",
+        year: "$_id.year",
+        amount: 1,
+        count: 1,
+      },
+    },
   ]);
 
   res.json(data);
@@ -1213,7 +1245,9 @@ const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "identity and type are required" });
   }
 
-  const normalized = type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+  const normalized =
+    type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+
   if (!normalized) {
     return res.status(400).json({ message: "identity is not valid" });
   }
@@ -1257,10 +1291,14 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
   const { identity, type, code } = req.body;
 
   if (!identity || !type || !code) {
-    return res.status(400).json({ message: "identity, type and code are required" });
+    return res
+      .status(400)
+      .json({ message: "identity, type and code are required" });
   }
 
-  const normalized = type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+  const normalized =
+    type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+
   if (!normalized) {
     return res.status(400).json({ message: "identity is not valid" });
   }
