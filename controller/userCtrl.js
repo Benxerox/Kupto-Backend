@@ -1,5 +1,4 @@
 // controllers/userCtrl.js
-
 const User = require("../models/userModel");
 const Product = require("../models/productModel");
 const Cart = require("../models/cartModel");
@@ -23,11 +22,13 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 // ============================
 const normalizeEmail = (v) => String(v || "").trim().toLowerCase();
 const normalizeMobile = (v) => String(v || "").trim();
-const isMongoDupError = (err) => err && (err.code === 11000 || err?.name === "MongoServerError");
+const isMongoDupError = (err) =>
+  err && (err.code === 11000 || err?.name === "MongoServerError");
 
 // ============================
 // ✅ REGISTER (replaces createUser)
 // Matches your schema: firstname, lastname, mobile, dob, password required; email optional
+// NOTE: returns token too (so frontend can store "customer" like before)
 // ============================
 const registerUserCtrl = asyncHandler(async (req, res) => {
   const { firstname, lastname, email, mobile, dob, password } = req.body;
@@ -60,9 +61,27 @@ const registerUserCtrl = asyncHandler(async (req, res) => {
       password,
     });
 
-    // ✅ return safe user
-    const safeUser = await User.findById(newUser._id).select("-password -refreshToken");
-    return res.status(201).json({ success: true, user: safeUser });
+    // ✅ create refresh token cookie like login
+    const refreshToken = generateRefreshToken(newUser._id);
+    await User.findByIdAndUpdate(newUser._id, { refreshToken }, { new: true });
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 72 * 60 * 60 * 1000,
+    });
+
+    // ✅ return what frontend expects (token etc.)
+    return res.status(201).json({
+      success: true,
+      id: newUser._id,
+      firstname: newUser.firstname,
+      lastname: newUser.lastname,
+      email: newUser.email,
+      mobile: newUser.mobile,
+      token: generateToken(newUser._id),
+    });
   } catch (err) {
     if (isMongoDupError(err)) {
       res.status(409);
@@ -121,6 +140,7 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
   });
 
   res.json({
+    success: true,
     id: user._id,
     firstname: user.firstname,
     lastname: user.lastname,
@@ -132,9 +152,8 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
 
 // ============================
 // ✅ GOOGLE LOGIN
-// Because your schema requires mobile + dob, we DO NOT create a new user without them.
-// If user exists -> login.
-// If not exists -> return profileRequired:true (frontend should collect mobile + dob then call register)
+// If user exists -> login
+// If not exists -> return profileRequired:true (frontend should collect mobile + dob then call /register)
 // ============================
 const googleLoginCtrl = asyncHandler(async (req, res) => {
   const { credential } = req.body;
@@ -167,7 +186,6 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
   let user = await User.findOne({ email: cleanEmail });
 
   if (!user) {
-    // ✅ cannot create due to required mobile + dob
     const parts = String(fullName).trim().split(" ");
     const firstname = parts[0] || "Kupto";
     const lastname = parts.slice(1).join(" ") || "User";
@@ -186,7 +204,6 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
     });
   }
 
-  // ✅ login existing user
   const refreshToken = generateRefreshToken(user._id);
   user.refreshToken = refreshToken;
   await user.save();
@@ -217,7 +234,9 @@ const identifyUserCtrl = asyncHandler(async (req, res) => {
   const { identity, type } = req.body;
 
   if (!identity) {
-    return res.status(400).json({ exists: false, message: "identity is required" });
+    return res
+      .status(400)
+      .json({ exists: false, message: "identity is required" });
   }
 
   const v = String(identity).trim();
@@ -269,6 +288,7 @@ const loginAdmin = asyncHandler(async (req, res) => {
   });
 
   res.json({
+    success: true,
     id: findAdmin._id,
     firstname: findAdmin.firstname,
     lastname: findAdmin.lastname,
@@ -279,7 +299,7 @@ const loginAdmin = asyncHandler(async (req, res) => {
 });
 
 // ============================
-// ✅ HANDLE REFRESH TOKEN (fix jwt.verify usage)
+// ✅ HANDLE REFRESH TOKEN
 // ============================
 const handleRefreshToken = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
@@ -297,7 +317,7 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
   }
 
   try {
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET); // ✅ sync verify
+    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
     if (String(user._id) !== String(decoded.id)) {
       res.status(401);
       throw new Error("There is something wrong with the refresh token");
@@ -317,7 +337,6 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
 const logout = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
   if (!cookie?.refreshToken) {
-    res.status(204);
     return res.sendStatus(204);
   }
 
@@ -359,10 +378,13 @@ const updatedUser = asyncHandler(async (req, res) => {
       mobile: req?.body?.mobile ? normalizeMobile(req.body.mobile) : undefined,
     };
 
-    // Remove undefined to avoid overwriting with undefined
-    Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+    Object.keys(payload).forEach(
+      (k) => payload[k] === undefined && delete payload[k]
+    );
 
-    const user = await User.findByIdAndUpdate(_id, payload, { new: true }).select("-password -refreshToken");
+    const user = await User.findByIdAndUpdate(_id, payload, { new: true }).select(
+      "-password -refreshToken"
+    );
     res.json(user);
   } catch (error) {
     if (isMongoDupError(error)) {
@@ -380,29 +402,21 @@ const saveAddress = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   validateMongoDbId(_id);
 
-  try {
-    const user = await User.findByIdAndUpdate(
-      _id,
-      { address: req?.body?.address },
-      { new: true }
-    ).select("-password -refreshToken");
+  const user = await User.findByIdAndUpdate(
+    _id,
+    { address: req?.body?.address },
+    { new: true }
+  ).select("-password -refreshToken");
 
-    res.json(user);
-  } catch (error) {
-    throw new Error(error);
-  }
+  res.json(user);
 });
 
 // ============================
 // ✅ GET ALL USERS
 // ============================
 const getallUser = asyncHandler(async (req, res) => {
-  try {
-    const users = await User.find().select("-password -refreshToken");
-    res.json(users);
-  } catch (error) {
-    throw new Error(error);
-  }
+  const users = await User.find().select("-password -refreshToken");
+  res.json(users);
 });
 
 // ============================
@@ -412,12 +426,8 @@ const getaUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
 
-  try {
-    const user = await User.findById(id).select("-password -refreshToken");
-    res.json({ getaUser: user });
-  } catch (error) {
-    throw new Error(error);
-  }
+  const user = await User.findById(id).select("-password -refreshToken");
+  res.json({ getaUser: user });
 });
 
 // ============================
@@ -427,12 +437,8 @@ const deleteaUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
 
-  try {
-    const user = await User.findByIdAndDelete(id).select("-password -refreshToken");
-    res.json({ deleteaUser: user });
-  } catch (error) {
-    throw new Error(error);
-  }
+  const user = await User.findByIdAndDelete(id).select("-password -refreshToken");
+  res.json({ deleteaUser: user });
 });
 
 // ============================
@@ -442,24 +448,20 @@ const blockUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
 
-  try {
-    const user = await User.findByIdAndUpdate(id, { isBlocked: true }, { new: true });
-    res.json(user);
-  } catch (error) {
-    throw new Error(error);
-  }
+  const user = await User.findByIdAndUpdate(
+    id,
+    { isBlocked: true },
+    { new: true }
+  );
+  res.json(user);
 });
 
 const unblockUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
 
-  try {
-    await User.findByIdAndUpdate(id, { isBlocked: false }, { new: true });
-    res.json({ message: "User UnBlocked" });
-  } catch (error) {
-    throw new Error(error);
-  }
+  await User.findByIdAndUpdate(id, { isBlocked: false }, { new: true });
+  res.json({ message: "User UnBlocked" });
 });
 
 // ============================
@@ -479,7 +481,11 @@ const updatePassword = asyncHandler(async (req, res) => {
   if (password) {
     user.password = password;
     const updatedPassword = await user.save();
-    res.json({ success: true, message: "Password updated", id: updatedPassword._id });
+    res.json({
+      success: true,
+      message: "Password updated",
+      id: updatedPassword._id,
+    });
   } else {
     res.json({ success: true, message: "No password provided" });
   }
@@ -497,25 +503,20 @@ const forgotPasswordToken = asyncHandler(async (req, res) => {
     throw new Error("User not found with this email");
   }
 
-  try {
-    const token = await user.createPasswordResetToken();
-    await user.save();
+  const token = await user.createPasswordResetToken();
+  await user.save();
 
-    const resetURL = `Hi, please follow this link to reset your password. This link is valid for 10 minutes from now: <a href='http://www.kupto.co/reset-password/${token}'>Click Here</a>`;
+  const resetURL = `Hi, please follow this link to reset your password. This link is valid for 10 minutes from now: <a href='http://www.kupto.co/reset-password/${token}'>Click Here</a>`;
 
-    const data = {
-      to: user.email,
-      text: "Hey User",
-      subject: "Forgot Password Link",
-      html: resetURL,
-    };
+  const data = {
+    to: user.email,
+    text: "Hey User",
+    subject: "Forgot Password Link",
+    html: resetURL,
+  };
 
-    await sendEmail(data);
-    res.json({ message: "Password reset link sent", token });
-  } catch (error) {
-    console.error("Error sending email:", error);
-    res.status(500).json({ message: "Failed to send email", error: error.message });
-  }
+  await sendEmail(data);
+  res.json({ message: "Password reset link sent", token });
 });
 
 // ============================
@@ -549,16 +550,10 @@ const resetPassword = asyncHandler(async (req, res) => {
 // ============================
 const getWishlist = asyncHandler(async (req, res) => {
   const { _id } = req.user;
-
-  try {
-    const user = await User.findById(_id).populate("wishlist");
-    res.json(user);
-  } catch (error) {
-    throw new Error(error);
-  }
+  const user = await User.findById(_id).populate("wishlist");
+  res.json(user);
 });
 
-// remove product from wishlist
 const removeProductFromWishlist = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   const { prodId } = req.params;
@@ -566,17 +561,13 @@ const removeProductFromWishlist = asyncHandler(async (req, res) => {
   validateMongoDbId(_id);
   validateMongoDbId(prodId);
 
-  try {
-    const user = await User.findByIdAndUpdate(
-      _id,
-      { $pull: { wishlist: prodId } },
-      { new: true }
-    ).populate("wishlist");
+  const user = await User.findByIdAndUpdate(
+    _id,
+    { $pull: { wishlist: prodId } },
+    { new: true }
+  ).populate("wishlist");
 
-    res.json(user);
-  } catch (error) {
-    throw new Error(error);
-  }
+  res.json(user);
 });
 
 // ============================
@@ -608,90 +599,93 @@ const userCart = asyncHandler(async (req, res) => {
 
   const qty = Math.max(1, Number(quantity || 1));
 
-  try {
-    const existing = await Cart.findOne({
-      userId: _id,
-      productId,
-      color: color || null,
-      size: size || null,
-      printSide: printSide || "",
-      printKey: printKey || "",
-    });
+  const existing = await Cart.findOne({
+    userId: _id,
+    productId,
+    color: color || null,
+    size: size || null,
+    printSide: printSide || "",
+    printKey: printKey || "",
+  });
 
-    if (existing) {
-      existing.quantity = Number(existing.quantity || 0) + qty;
+  if (existing) {
+    existing.quantity = Number(existing.quantity || 0) + qty;
 
-      if (price != null) existing.price = Number(price);
-      if (variantImage != null) existing.variantImage = variantImage;
+    if (price != null) existing.price = Number(price);
+    if (variantImage != null) existing.variantImage = variantImage;
 
-      existing.instruction = instruction ?? existing.instruction ?? null;
+    existing.instruction = instruction ?? existing.instruction ?? null;
 
-      existing.printSide = printSide ?? existing.printSide ?? "";
-      existing.printUnitPrice =
-        printUnitPrice != null ? Number(printUnitPrice) : Number(existing.printUnitPrice || 0);
+    existing.printSide = printSide ?? existing.printSide ?? "";
+    existing.printUnitPrice =
+      printUnitPrice != null
+        ? Number(printUnitPrice)
+        : Number(existing.printUnitPrice || 0);
 
-      existing.printKey = printKey ?? existing.printKey ?? "";
-      existing.printPricingTitle = printPricingTitle ?? existing.printPricingTitle ?? "";
+    existing.printKey = printKey ?? existing.printKey ?? "";
+    existing.printPricingTitle =
+      printPricingTitle ?? existing.printPricingTitle ?? "";
 
-      existing.preparePriceOnce =
-        preparePriceOnce != null ? Number(preparePriceOnce) : Number(existing.preparePriceOnce || 0);
+    existing.preparePriceOnce =
+      preparePriceOnce != null
+        ? Number(preparePriceOnce)
+        : Number(existing.preparePriceOnce || 0);
 
-      existing.preparePriceApplied =
-        preparePriceApplied != null ? Boolean(preparePriceApplied) : Boolean(existing.preparePriceApplied);
+    existing.preparePriceApplied =
+      preparePriceApplied != null
+        ? Boolean(preparePriceApplied)
+        : Boolean(existing.preparePriceApplied);
 
-      existing.printDiscountMinQty =
-        printDiscountMinQty != null ? Number(printDiscountMinQty) : existing.printDiscountMinQty ?? null;
+    existing.printDiscountMinQty =
+      printDiscountMinQty != null
+        ? Number(printDiscountMinQty)
+        : existing.printDiscountMinQty ?? null;
 
-      if (Array.isArray(uploadedFiles) && uploadedFiles.length) {
-        existing.uploadedFiles = [...(existing.uploadedFiles || []), ...uploadedFiles];
-      }
-
-      await existing.save();
-      return res.json(existing);
+    if (Array.isArray(uploadedFiles) && uploadedFiles.length) {
+      existing.uploadedFiles = [
+        ...(existing.uploadedFiles || []),
+        ...uploadedFiles,
+      ];
     }
 
-    const newCart = await Cart.create({
-      userId: _id,
-      productId,
-      color: color || null,
-      size: size || null,
-      price: Number(price),
-      quantity: qty,
-      uploadedFiles: Array.isArray(uploadedFiles) ? uploadedFiles : [],
-      instruction: instruction ?? null,
-
-      variantImage: variantImage ?? "",
-      printSide: printSide ?? "",
-      printUnitPrice: Number(printUnitPrice || 0),
-      printKey: printKey ?? "",
-      printPricingTitle: printPricingTitle ?? "",
-      preparePriceOnce: Number(preparePriceOnce || 0),
-      preparePriceApplied: Boolean(preparePriceApplied || false),
-      printDiscountMinQty: printDiscountMinQty != null ? Number(printDiscountMinQty) : null,
-    });
-
-    return res.json(newCart);
-  } catch (error) {
-    throw new Error(error);
+    await existing.save();
+    return res.json(existing);
   }
+
+  const newCart = await Cart.create({
+    userId: _id,
+    productId,
+    color: color || null,
+    size: size || null,
+    price: Number(price),
+    quantity: qty,
+    uploadedFiles: Array.isArray(uploadedFiles) ? uploadedFiles : [],
+    instruction: instruction ?? null,
+
+    variantImage: variantImage ?? "",
+    printSide: printSide ?? "",
+    printUnitPrice: Number(printUnitPrice || 0),
+    printKey: printKey ?? "",
+    printPricingTitle: printPricingTitle ?? "",
+    preparePriceOnce: Number(preparePriceOnce || 0),
+    preparePriceApplied: Boolean(preparePriceApplied || false),
+    printDiscountMinQty:
+      printDiscountMinQty != null ? Number(printDiscountMinQty) : null,
+  });
+
+  return res.json(newCart);
 });
 
 const getUserCart = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   validateMongoDbId(_id);
 
-  try {
-    const cart = await Cart.find({ userId: _id })
-      .populate("productId")
-      .populate("color")
-      .populate("size");
+  const cart = await Cart.find({ userId: _id })
+    .populate("productId")
+    .populate("color")
+    .populate("size");
 
-    if (cart.length === 0) return res.status(200).json([]);
-    res.json(cart);
-  } catch (error) {
-    console.error("Error while fetching cart:", error.message);
-    res.status(500).json({ message: "Server error" });
-  }
+  return res.status(200).json(cart || []);
 });
 
 const removeProductFromCart = asyncHandler(async (req, res) => {
@@ -700,12 +694,8 @@ const removeProductFromCart = asyncHandler(async (req, res) => {
 
   validateMongoDbId(_id);
 
-  try {
-    const deleted = await Cart.deleteOne({ userId: _id, _id: cartItemId });
-    res.json(deleted);
-  } catch (error) {
-    throw new Error(error);
-  }
+  const deleted = await Cart.deleteOne({ userId: _id, _id: cartItemId });
+  res.json(deleted);
 });
 
 const updateProductQuantityFromCart = asyncHandler(async (req, res) => {
@@ -714,38 +704,36 @@ const updateProductQuantityFromCart = asyncHandler(async (req, res) => {
 
   validateMongoDbId(_id);
 
-  try {
-    const cartItem = await Cart.findOne({ userId: _id, _id: cartItemId });
-    if (!cartItem) {
-      res.status(404);
-      throw new Error("Cart item not found");
-    }
-
-    cartItem.quantity = Math.max(1, Number(newQuantity || 1));
-    await cartItem.save();
-
-    res.json(cartItem);
-  } catch (error) {
-    throw new Error(error);
+  const cartItem = await Cart.findOne({ userId: _id, _id: cartItemId });
+  if (!cartItem) {
+    res.status(404);
+    throw new Error("Cart item not found");
   }
+
+  cartItem.quantity = Math.max(1, Number(newQuantity || 1));
+  await cartItem.save();
+
+  res.json(cartItem);
 });
 
 const emptyCart = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   validateMongoDbId(_id);
 
-  try {
-    const deleted = await Cart.deleteMany({ userId: _id });
-    res.json(deleted);
-  } catch (error) {
-    throw new Error(error);
-  }
+  const deleted = await Cart.deleteMany({ userId: _id });
+  res.json(deleted);
 });
 
 // ============================
 // ✅ RECEIPT HTML
 // ============================
-const generateReceiptHtml = (order, shippingInfo = {}, orderItems = [], totalPrice = 0, paymentInfo = {}) => {
+const generateReceiptHtml = (
+  order,
+  shippingInfo = {},
+  orderItems = [],
+  totalPrice = 0,
+  paymentInfo = {}
+) => {
   const escapeHtml = (v) =>
     String(v ?? "")
       .replace(/&/g, "&amp;")
@@ -799,16 +787,24 @@ const generateReceiptHtml = (order, shippingInfo = {}, orderItems = [], totalPri
 
   const paymentMethod = escapeHtml(paymentInfo?.paymentMethod || "Not specified");
   const payStatus = escapeHtml(paymentInfo?.status || "Pending");
-  const paypalOrderID = paymentInfo?.paypalOrderID ? escapeHtml(paymentInfo.paypalOrderID) : "";
-  const paypalPaymentID = paymentInfo?.paypalPaymentID ? escapeHtml(paymentInfo.paypalPaymentID) : "";
-  const paypalPayerID = paymentInfo?.paypalPayerID ? escapeHtml(paymentInfo.paypalPayerID) : "";
+  const paypalOrderID = paymentInfo?.paypalOrderID
+    ? escapeHtml(paymentInfo.paypalOrderID)
+    : "";
+  const paypalPaymentID = paymentInfo?.paypalPaymentID
+    ? escapeHtml(paymentInfo.paypalPaymentID)
+    : "";
+  const paypalPayerID = paymentInfo?.paypalPayerID
+    ? escapeHtml(paymentInfo.paypalPayerID)
+    : "";
 
   const itemsHtml = (Array.isArray(orderItems) ? orderItems : [])
     .map((item) => {
       const prod = item?.product;
 
       const title = escapeHtml(getProductTitle(prod));
-      const desc = escapeHtml(getProductDescription(prod) || "No description available");
+      const desc = escapeHtml(
+        getProductDescription(prod) || "No description available"
+      );
       const imgUrl = getProductImageUrl(prod);
 
       const qty = escapeHtml(item?.quantity ?? 1);
@@ -935,11 +931,14 @@ const generateReceiptHtml = (order, shippingInfo = {}, orderItems = [], totalPri
 // ✅ CREATE ORDER
 // ============================
 const createOrder = asyncHandler(async (req, res) => {
-  const { shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo } = req.body;
+  const { shippingInfo, orderItems, totalPrice, totalPriceAfterDiscount, paymentInfo } =
+    req.body;
   const { _id } = req.user;
 
   if (!Array.isArray(orderItems) || orderItems.length === 0) {
-    return res.status(400).json({ message: "orderItems must be a non-empty array" });
+    return res
+      .status(400)
+      .json({ message: "orderItems must be a non-empty array" });
   }
 
   if (!shippingInfo) {
@@ -961,7 +960,11 @@ const createOrder = asyncHandler(async (req, res) => {
   }
 
   const paypalOrderID =
-    paymentInfo.paypalOrderID || paymentInfo.paypal_order_id || paymentInfo.orderID || paymentInfo.orderId || null;
+    paymentInfo.paypalOrderID ||
+    paymentInfo.paypal_order_id ||
+    paymentInfo.orderID ||
+    paymentInfo.orderId ||
+    null;
 
   const paypalPaymentID =
     paymentInfo.paypalPaymentID ||
@@ -970,7 +973,11 @@ const createOrder = asyncHandler(async (req, res) => {
     paymentInfo.paymentId ||
     null;
 
-  const paypalPayerID = paymentInfo.paypalPayerID || paymentInfo.payerID || paymentInfo.payerId || null;
+  const paypalPayerID =
+    paymentInfo.paypalPayerID ||
+    paymentInfo.payerID ||
+    paymentInfo.payerId ||
+    null;
 
   const safePaymentInfo = {
     paymentMethod,
@@ -983,59 +990,65 @@ const createOrder = asyncHandler(async (req, res) => {
   const isPayPal = paymentMethod.toLowerCase() === "paypal";
 
   if (isPayPal) {
-    if (!paypalOrderID) return res.status(400).json({ message: "PayPal Order ID is required" });
+    if (!paypalOrderID)
+      return res.status(400).json({ message: "PayPal Order ID is required" });
 
     if (!paypalPaymentID && !paypalPayerID) {
-      return res.status(400).json({ message: "PayPal Payment ID (or Payer ID) is required" });
+      return res
+        .status(400)
+        .json({ message: "PayPal Payment ID (or Payer ID) is required" });
     }
 
     safePaymentInfo.paypalOrderID = String(paypalOrderID);
-    safePaymentInfo.paypalPaymentID = paypalPaymentID ? String(paypalPaymentID) : null;
+    safePaymentInfo.paypalPaymentID = paypalPaymentID
+      ? String(paypalPaymentID)
+      : null;
     safePaymentInfo.paypalPayerID = paypalPayerID ? String(paypalPayerID) : null;
   }
 
-  try {
-    const order = await Order.create({
-      shippingInfo,
-      orderItems: safeOrderItems,
-      totalPrice,
-      totalPriceAfterDiscount,
-      paymentInfo: safePaymentInfo,
-      user: _id,
-    });
+  const order = await Order.create({
+    shippingInfo,
+    orderItems: safeOrderItems,
+    totalPrice,
+    totalPriceAfterDiscount,
+    paymentInfo: safePaymentInfo,
+    user: _id,
+  });
 
-    const user = await User.findById(_id).select("email firstname lastname");
-    const userEmail = user?.email;
+  const user = await User.findById(_id).select("email firstname lastname");
+  const userEmail = user?.email;
 
-    if (userEmail) {
-      const receiptHtml = generateReceiptHtml(order, shippingInfo, safeOrderItems, totalPrice, safePaymentInfo);
-
-      const emailData = {
-        to: userEmail,
-        subject: "Your Order Receipt",
-        text: "Thank you for your purchase! Please find your receipt below.",
-        html: receiptHtml,
-      };
-
-      try {
-        await sendEmail(emailData);
-      } catch (emailError) {
-        console.error("Error sending email:", emailError);
-      }
-    }
-
-    return res.status(201).json({
+  if (userEmail) {
+    const receiptHtml = generateReceiptHtml(
       order,
-      success: true,
-      message: userEmail ? "Order created and receipt sent successfully." : "Order created successfully.",
-    });
-  } catch (error) {
-    console.error("Error creating order:", error);
-    return res.status(500).json({
-      message: "Failed to create order",
-      error: error?.message || "Unknown error",
-    });
+      shippingInfo,
+      safeOrderItems,
+      totalPrice,
+      safePaymentInfo
+    );
+
+    const emailData = {
+      to: userEmail,
+      subject: "Your Order Receipt",
+      text: "Thank you for your purchase! Please find your receipt below.",
+      html: receiptHtml,
+    };
+
+    // don't fail order if email fails
+    try {
+      await sendEmail(emailData);
+    } catch (emailError) {
+      console.error("Error sending email:", emailError);
+    }
   }
+
+  return res.status(201).json({
+    order,
+    success: true,
+    message: userEmail
+      ? "Order created and receipt sent successfully."
+      : "Order created successfully.",
+  });
 });
 
 // ============================
@@ -1044,63 +1057,46 @@ const createOrder = asyncHandler(async (req, res) => {
 const getMyOrders = asyncHandler(async (req, res) => {
   const { _id } = req.user;
 
-  try {
-    const orders = await Order.find({ user: _id })
-      .populate("user")
-      .populate("orderItems.product")
-      .populate("orderItems.color")
-      .populate("orderItems.size");
+  const orders = await Order.find({ user: _id })
+    .populate("user")
+    .populate("orderItems.product")
+    .populate("orderItems.color")
+    .populate("orderItems.size");
 
-    res.json({ orders });
-  } catch (error) {
-    throw new Error(error);
-  }
+  res.json({ orders });
 });
 
 const getAllOrders = asyncHandler(async (req, res) => {
-  try {
-    const orders = await Order.find().populate("user");
-    res.json({ orders });
-  } catch (error) {
-    throw new Error(error);
-  }
+  const orders = await Order.find().populate("user");
+  res.json({ orders });
 });
 
 const getSingleOrders = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  try {
-    const order = await Order.findOne({ _id: id })
-      .populate("orderItems.product")
-      .populate("orderItems.color")
-      .populate("orderItems.size")
-      .populate("user");
+  const order = await Order.findOne({ _id: id })
+    .populate("orderItems.product")
+    .populate("orderItems.color")
+    .populate("orderItems.size")
+    .populate("user");
 
-    res.json({ order });
-  } catch (error) {
-    throw new Error(error);
-  }
+  res.json({ order });
 });
 
 const updateOrder = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
-  try {
-    const order = await Order.findById(id);
-    if (!order) {
-      res.status(404);
-      throw new Error("Order not found");
-    }
-
-    await Order.updateOne({ _id: id }, { $set: { orderStatus: status } });
-    const updatedOrder = await Order.findById(id);
-
-    res.json({ order: updatedOrder });
-  } catch (error) {
-    res.status(400);
-    throw new Error(error.message);
+  const order = await Order.findById(id);
+  if (!order) {
+    res.status(404);
+    throw new Error("Order not found");
   }
+
+  await Order.updateOne({ _id: id }, { $set: { orderStatus: status } });
+  const updatedOrder = await Order.findById(id);
+
+  res.json({ order: updatedOrder });
 });
 
 // ============================
@@ -1112,11 +1108,7 @@ const getMonthWiseOrderIncome = asyncHandler(async (req, res) => {
   d.setMonth(d.getMonth() - 11);
 
   const data = await Order.aggregate([
-    {
-      $match: {
-        createdAt: { $gte: d, $lte: new Date() },
-      },
-    },
+    { $match: { createdAt: { $gte: d, $lte: new Date() } } },
     {
       $project: {
         year: { $year: "$createdAt" },
@@ -1132,50 +1124,21 @@ const getMonthWiseOrderIncome = asyncHandler(async (req, res) => {
       },
     },
     { $sort: { "_id.year": 1, "_id.month": 1 } },
-    {
-      $project: {
-        _id: 0,
-        month: "$_id.month",
-        year: "$_id.year",
-        amount: 1,
-        count: 1,
-      },
-    },
+    { $project: { _id: 0, month: "$_id.month", year: "$_id.year", amount: 1, count: 1 } },
   ]);
 
   res.json(data);
 });
 
 const getYearlyTotalOrders = asyncHandler(async (req, res) => {
-  let monthNames = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
-
   let d = new Date();
   d.setDate(1);
-
-  // ✅ correct way: go back 11 months from start-of-month
   d.setMonth(d.getMonth() - 11);
 
   const startDate = new Date(d);
 
   const data = await Order.aggregate([
-    {
-      $match: {
-        createdAt: { $lte: new Date(), $gte: startDate },
-      },
-    },
+    { $match: { createdAt: { $lte: new Date(), $gte: startDate } } },
     {
       $group: {
         _id: null,
@@ -1191,7 +1154,6 @@ const getYearlyTotalOrders = asyncHandler(async (req, res) => {
 // ============================
 // ✅ OTP / Verification Code
 // ============================
-// In-memory OTP store (quick fix). Production: Redis/DB.
 const OTP_STORE = new Map();
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -1279,7 +1241,7 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
 // ============================
 module.exports = {
   // auth
-  registerUserCtrl, // ✅ new
+  registerUserCtrl,
   loginUserCtrl,
   googleLoginCtrl,
   identifyUserCtrl,

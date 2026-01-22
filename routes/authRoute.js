@@ -4,7 +4,7 @@ const router = express.Router();
 
 const {
   // AUTH
-  registerUserCtrl, // (if you later rename in ctrl, update here too)
+  registerUserCtrl,
   loginUserCtrl,
   googleLoginCtrl,
   identifyUserCtrl,
@@ -76,7 +76,6 @@ router.put("/password", authMiddleware, updatePassword);
 
 /* =========================
    OTP (NO AUTH)
-   ✅ keep outside auth (users need OTP before login)
 ========================= */
 router.post("/send-verification-code", sendVerificationCodeCtrl);
 router.post("/verify-code", verifyCodeCtrl);
@@ -125,11 +124,7 @@ router.get("/getmyorders", authMiddleware, getMyOrders);
 /* =========================
    ANALYTICS
 ========================= */
-router.get(
-  "/getMonthWiseOrderIncome",
-  authMiddleware,
-  getMonthWiseOrderIncome
-);
+router.get("/getMonthWiseOrderIncome", authMiddleware, getMonthWiseOrderIncome);
 router.get("/getyearlyorders", authMiddleware, getYearlyTotalOrders);
 
 /* =========================
