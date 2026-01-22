@@ -20,10 +20,71 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 // ============================
 // ✅ Helpers
 // ============================
+
+// Email: trim + lower
 const normalizeEmail = (v) => String(v || "").trim().toLowerCase();
-const normalizeMobile = (v) => String(v || "").trim();
+
+// ✅ Phone: normalize Uganda numbers to E.164 (+256XXXXXXXXX) consistently
+// Accepts: "070...", "7...", "2567...", "+2567...", "00 2567..."
+const normalizeMobile = (raw = "") => {
+  let s = String(raw || "").trim().replace(/[^\d+]/g, "");
+
+  if (!s) return "";
+
+  // 00... -> +...
+  if (s.startsWith("00")) s = "+" + s.slice(2);
+
+  // +256... is already E.164 (Uganda)
+  if (s.startsWith("+256")) return s;
+
+  // 2567... -> +2567...
+  if (s.startsWith("256")) return "+" + s;
+
+  // 07... -> +2567...
+  if (s.startsWith("0")) {
+    const rest = s.replace(/^0+/, "");
+    return `+256${rest}`;
+  }
+
+  // 7xxxxxxx typed without 0/256 (common)
+  if (/^\d+$/.test(s) && s.length >= 7 && s.length <= 9) return `+256${s}`;
+
+  // If it already has + (non-Ug), keep it
+  if (s.startsWith("+")) return s;
+
+  // fallback: add +
+  return `+${s}`;
+};
+
 const isMongoDupError = (err) =>
   err && (err.code === 11000 || err?.name === "MongoServerError");
+
+// ✅ Cookie options
+// If your frontend is on kupto.co and API on api.kupto.co (cross-site),
+// you usually need sameSite:"none" + secure:true in production.
+// We'll automatically set it based on env flags.
+const getCookieOptions = () => {
+  const isProd = process.env.NODE_ENV === "production";
+  const isCrossSite = String(process.env.CROSS_SITE_COOKIES || "").toLowerCase() === "true";
+
+  // If cross-site cookies needed (recommended for kupto.co -> api.kupto.co):
+  if (isProd && isCrossSite) {
+    return {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      maxAge: 72 * 60 * 60 * 1000,
+    };
+  }
+
+  // default (works for same-site setups)
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: "lax",
+    maxAge: 72 * 60 * 60 * 1000,
+  };
+};
 
 // ============================
 // ✅ REGISTER (replaces createUser)
@@ -40,6 +101,11 @@ const registerUserCtrl = asyncHandler(async (req, res) => {
 
   const cleanEmail = email ? normalizeEmail(email) : undefined;
   const cleanMobile = normalizeMobile(mobile);
+
+  if (!cleanMobile) {
+    res.status(400);
+    throw new Error("mobile is not valid");
+  }
 
   // ✅ prevent duplicates by email OR phone
   const or = [{ mobile: cleanMobile }];
@@ -58,19 +124,14 @@ const registerUserCtrl = asyncHandler(async (req, res) => {
       email: cleanEmail,
       mobile: cleanMobile,
       dob: new Date(dob),
-      password,
+      password, // hashed by pre-save hook
     });
 
     // ✅ create refresh token cookie like login
     const refreshToken = generateRefreshToken(newUser._id);
     await User.findByIdAndUpdate(newUser._id, { refreshToken }, { new: true });
 
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 72 * 60 * 60 * 1000,
-    });
+    res.cookie("refreshToken", refreshToken, getCookieOptions());
 
     // ✅ return what frontend expects (token etc.)
     return res.status(201).json({
@@ -116,6 +177,10 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
       ? { email: normalizeEmail(incomingIdentity) }
       : { mobile: normalizeMobile(incomingIdentity) };
 
+  // Debug helpers (optional)
+  // console.log("LOGIN incoming:", { incomingIdentity, incomingType });
+  // console.log("LOGIN query:", query);
+
   const user = await User.findOne(query);
   if (!user) {
     res.status(401);
@@ -132,12 +197,7 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
   user.refreshToken = refreshToken;
   await user.save();
 
-  res.cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 72 * 60 * 60 * 1000,
-  });
+  res.cookie("refreshToken", refreshToken, getCookieOptions());
 
   res.json({
     success: true,
@@ -185,6 +245,7 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
 
   let user = await User.findOne({ email: cleanEmail });
 
+  // If no user, ask frontend to complete profile (mobile + dob)
   if (!user) {
     const parts = String(fullName).trim().split(" ");
     const firstname = parts[0] || "Kupto";
@@ -208,12 +269,7 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
   user.refreshToken = refreshToken;
   await user.save();
 
-  res.cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 72 * 60 * 60 * 1000,
-  });
+  res.cookie("refreshToken", refreshToken, getCookieOptions());
 
   res.json({
     success: true,
@@ -280,12 +336,7 @@ const loginAdmin = asyncHandler(async (req, res) => {
   findAdmin.refreshToken = refreshToken;
   await findAdmin.save();
 
-  res.cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 72 * 60 * 60 * 1000,
-  });
+  res.cookie("refreshToken", refreshToken, getCookieOptions());
 
   res.json({
     success: true,
@@ -344,21 +395,13 @@ const logout = asyncHandler(async (req, res) => {
   const user = await User.findOne({ refreshToken });
 
   if (!user) {
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-    });
+    res.clearCookie("refreshToken", getCookieOptions());
     return res.sendStatus(204);
   }
 
   await User.findOneAndUpdate({ refreshToken }, { refreshToken: "" });
 
-  res.clearCookie("refreshToken", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-  });
+  res.clearCookie("refreshToken", getCookieOptions());
 
   res.sendStatus(204);
 });
@@ -377,6 +420,12 @@ const updatedUser = asyncHandler(async (req, res) => {
       email: req?.body?.email ? normalizeEmail(req.body.email) : undefined,
       mobile: req?.body?.mobile ? normalizeMobile(req.body.mobile) : undefined,
     };
+
+    // If mobile provided but invalid
+    if (req?.body?.mobile && !payload.mobile) {
+      res.status(400);
+      throw new Error("mobile is not valid");
+    }
 
     Object.keys(payload).forEach(
       (k) => payload[k] === undefined && delete payload[k]
@@ -869,7 +918,7 @@ const generateReceiptHtml = (
     .join("");
 
   const paypalExtra =
-    paymentMethod.toLowerCase() === "paypal"
+    String(paymentInfo?.paymentMethod || "").toLowerCase() === "paypal"
       ? `
           <div style="margin-top:10px; font-size:13px; color:#222; line-height:1.7;">
             ${paypalOrderID ? `<div><strong>PayPal Order ID:</strong> ${paypalOrderID}</div>` : ""}
@@ -1165,6 +1214,9 @@ const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
   }
 
   const normalized = type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+  if (!normalized) {
+    return res.status(400).json({ message: "identity is not valid" });
+  }
 
   const code = generateOtp();
   const expiresAt = Date.now() + 10 * 60 * 1000;
@@ -1209,6 +1261,10 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
   }
 
   const normalized = type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+  if (!normalized) {
+    return res.status(400).json({ message: "identity is not valid" });
+  }
+
   const key = `${type}:${normalized}`;
   const saved = OTP_STORE.get(key);
 
