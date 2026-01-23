@@ -45,7 +45,8 @@
     "nodemon": "^3.1.7"
   },
   "overrides": {
-    "gopd": "1.1.0"
+    "get-intrinsic": "1.2.0",
+    "gopd": "1.2.0"
   }
 }
 
