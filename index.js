@@ -34,6 +34,9 @@ const cookieParser = require("cookie-parser");
 const { notFound, errorHandler } = require("./middlewares/errorHandler");
 const morgan = require("morgan");
 const cors = require("cors");
+const dns = require("dns");
+
+dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 // Connect to the database
 dbConnect();
