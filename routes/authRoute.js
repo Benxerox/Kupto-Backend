@@ -12,8 +12,11 @@ const {
   handleRefreshToken,
   logout,
   updatePassword,
-  forgotPasswordToken,
-  resetPassword,
+
+  // PASSWORD RESET (CODE FLOW)
+  forgotPasswordCode,
+  verifyResetCode, // ✅ NEW (fixes POST /verify-reset-code 404)
+  resetPasswordWithCode,
 
   // PROFILE
   updatedUser,
@@ -53,8 +56,6 @@ const {
   // OTP
   sendVerificationCodeCtrl,
   verifyCodeCtrl,
-  forgotPasswordCode,
-  resetPasswordWithCode,
 } = require("../controller/userCtrl");
 
 const { authMiddleware, isAdmin } = require("../middlewares/authMiddleware");
@@ -72,8 +73,12 @@ router.post("/admin-login", loginAdmin);
 router.get("/refresh", handleRefreshToken);
 router.get("/logout", logout);
 
+// ✅ Password reset by code (email)
 router.post("/forgot-password-code", forgotPasswordCode);
+router.post("/verify-reset-code", verifyResetCode); // ✅ ADD THIS
 router.put("/reset-password-code", resetPasswordWithCode);
+
+// ✅ Logged-in password change
 router.put("/password", authMiddleware, updatePassword);
 
 /* =========================
@@ -126,7 +131,11 @@ router.get("/getmyorders", authMiddleware, getMyOrders);
 /* =========================
    ANALYTICS
 ========================= */
-router.get("/getMonthWiseOrderIncome", authMiddleware, getMonthWiseOrderIncome);
+router.get(
+  "/getMonthWiseOrderIncome",
+  authMiddleware,
+  getMonthWiseOrderIncome
+);
 router.get("/getyearlyorders", authMiddleware, getYearlyTotalOrders);
 
 /* =========================

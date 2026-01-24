@@ -4,11 +4,13 @@ const Product = require("../models/productModel");
 const Cart = require("../models/cartModel");
 const Coupon = require("../models/couponModel");
 const Order = require("../models/order.model");
+
 const uniqid = require("uniqid");
 const asyncHandler = require("express-async-handler");
 const { generateToken } = require("../config/jwtToken");
 const validateMongoDbId = require("../utils/validateMongodbid");
 const { generateRefreshToken } = require("../config/refreshToken");
+
 const jwt = require("jsonwebtoken");
 const sendEmail = require("./emailCtrl");
 const crypto = require("crypto");
@@ -535,8 +537,6 @@ const updatePassword = asyncHandler(async (req, res) => {
     res.json({ success: true, message: "No password provided" });
   }
 });
-
-
 
 // ============================
 // ✅ WISHLIST
@@ -1278,7 +1278,6 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
   });
 });
 
-
 // ============================
 // ✅ PASSWORD RESET VIA EMAIL CODE
 // ============================
@@ -1332,6 +1331,46 @@ const forgotPasswordCode = asyncHandler(async (req, res) => {
 });
 
 /**
+ * ✅ NEW: POST /user/verify-reset-code
+ * Body: { email, code }
+ * This fixes your 404 and lets the frontend verify first (without changing password).
+ */
+const verifyResetCode = asyncHandler(async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const code = String(req.body?.code || "").trim();
+
+  if (!email || !code) {
+    res.status(400);
+    throw new Error("email and code are required");
+  }
+
+  const saved = PW_RESET_STORE.get(email);
+
+  if (!saved) {
+    res.status(400);
+    throw new Error("Code not found. Please request a new code.");
+  }
+
+  if (Date.now() > saved.expiresAt) {
+    PW_RESET_STORE.delete(email);
+    res.status(400);
+    throw new Error("Code expired. Please request a new code.");
+  }
+
+  if (code !== saved.code) {
+    res.status(400);
+    throw new Error("Invalid code");
+  }
+
+  // ✅ Do NOT consume the code here (so user can still reset password on next page)
+  return res.status(200).json({
+    success: true,
+    message: "Code verified",
+    email,
+  });
+});
+
+/**
  * PUT /user/reset-password-code
  * Body: { email, code, password }
  * Verifies code + resets password.
@@ -1369,7 +1408,6 @@ const resetPasswordWithCode = asyncHandler(async (req, res) => {
 
   const user = await User.findOne({ email }).select("+password");
   if (!user) {
-    // still keep message generic-ish
     res.status(400);
     throw new Error("Unable to reset password. Please request a new code.");
   }
@@ -1382,7 +1420,6 @@ const resetPasswordWithCode = asyncHandler(async (req, res) => {
     message: "Password reset successful",
   });
 });
-
 
 // ============================
 // ✅ EXPORTS (FULL)
@@ -1405,8 +1442,12 @@ module.exports = {
   blockUser,
   unblockUser,
   updatePassword,
+
+  // password reset
   forgotPasswordCode,
+  verifyResetCode, // ✅ added (fixes /verify-reset-code 404)
   resetPasswordWithCode,
+
   saveAddress,
 
   // wishlist
