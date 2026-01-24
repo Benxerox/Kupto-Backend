@@ -24,7 +24,7 @@ var userSchema = new mongoose.Schema({
     mobile: { type: String, required: true, unique: true, trim: true },
 
     // ✅ add dob because you use it
-    dob: { type: Date, required: true },
+    dob: { type: Date, default: null },
     password:{
         type:String,
         required:true,
