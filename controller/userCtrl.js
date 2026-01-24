@@ -536,59 +536,7 @@ const updatePassword = asyncHandler(async (req, res) => {
   }
 });
 
-// ============================
-// ✅ FORGOT PASSWORD
-// ============================
-const forgotPasswordToken = asyncHandler(async (req, res) => {
-  const { email } = req.body;
-  const user = await User.findOne({ email: normalizeEmail(email) });
 
-  if (!user) {
-    res.status(404);
-    throw new Error("User not found with this email");
-  }
-
-  const token = await user.createPasswordResetToken();
-  await user.save();
-
-  const resetURL = `Hi, please follow this link to reset your password. This link is valid for 10 minutes from now: <a href='http://www.kupto.co/reset-password/${token}'>Click Here</a>`;
-
-  const data = {
-    to: user.email,
-    text: "Hey User",
-    subject: "Forgot Password Link",
-    html: resetURL,
-  };
-
-  await sendEmail(data);
-  res.json({ message: "Password reset link sent", token });
-});
-
-// ============================
-// ✅ RESET PASSWORD
-// ============================
-const resetPassword = asyncHandler(async (req, res) => {
-  const { password } = req.body;
-  const { token } = req.params;
-
-  const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
-  const user = await User.findOne({
-    passwordResetToken: hashedToken,
-    passwordResetExpires: { $gt: Date.now() },
-  });
-
-  if (!user) {
-    res.status(400);
-    throw new Error("Token Expired, Please try again later");
-  }
-
-  user.password = password;
-  user.passwordResetToken = undefined;
-  user.passwordResetExpires = undefined;
-
-  await user.save();
-  res.json({ success: true, message: "Password reset successful" });
-});
 
 // ============================
 // ✅ WISHLIST
@@ -1330,6 +1278,112 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
   });
 });
 
+
+// ============================
+// ✅ PASSWORD RESET VIA EMAIL CODE
+// ============================
+
+// In-memory store (OK for development). For production, use Redis/DB.
+const PW_RESET_STORE = new Map();
+const generateResetCode = () =>
+  Math.floor(100000 + Math.random() * 900000).toString();
+
+// Optional: do NOT leak whether user exists
+const okGenericForgotResponse = (res) =>
+  res.status(200).json({
+    success: true,
+    message: "If an account exists for this email, a verification code was sent.",
+  });
+
+/**
+ * POST /user/forgot-password-code
+ * Body: { email }
+ * Sends a 6-digit code to email.
+ */
+const forgotPasswordCode = asyncHandler(async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+
+  if (!email) {
+    res.status(400);
+    throw new Error("email is required");
+  }
+
+  const user = await User.findOne({ email });
+
+  // ✅ Don't reveal if user exists
+  if (!user) return okGenericForgotResponse(res);
+
+  const code = generateResetCode();
+  const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+  // store by email
+  PW_RESET_STORE.set(email, { code, expiresAt });
+
+  const data = {
+    to: email,
+    subject: "Kupto password reset code",
+    text: `Your Kupto password reset code is ${code}. It expires in 10 minutes.`,
+    html: `<p>Your Kupto password reset code is <b>${code}</b>. It expires in 10 minutes.</p>`,
+  };
+
+  await sendEmail(data);
+
+  return okGenericForgotResponse(res);
+});
+
+/**
+ * PUT /user/reset-password-code
+ * Body: { email, code, password }
+ * Verifies code + resets password.
+ */
+const resetPasswordWithCode = asyncHandler(async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const code = String(req.body?.code || "").trim();
+  const password = req.body?.password;
+
+  if (!email || !code || !password) {
+    res.status(400);
+    throw new Error("email, code and password are required");
+  }
+
+  const saved = PW_RESET_STORE.get(email);
+
+  if (!saved) {
+    res.status(400);
+    throw new Error("Code not found. Please request a new code.");
+  }
+
+  if (Date.now() > saved.expiresAt) {
+    PW_RESET_STORE.delete(email);
+    res.status(400);
+    throw new Error("Code expired. Please request a new code.");
+  }
+
+  if (code !== saved.code) {
+    res.status(400);
+    throw new Error("Invalid code");
+  }
+
+  // ✅ consume code (one-time)
+  PW_RESET_STORE.delete(email);
+
+  const user = await User.findOne({ email }).select("+password");
+  if (!user) {
+    // still keep message generic-ish
+    res.status(400);
+    throw new Error("Unable to reset password. Please request a new code.");
+  }
+
+  user.password = password;
+  await user.save();
+
+  return res.status(200).json({
+    success: true,
+    message: "Password reset successful",
+  });
+});
+
+
 // ============================
 // ✅ EXPORTS (FULL)
 // ============================
@@ -1351,8 +1405,8 @@ module.exports = {
   blockUser,
   unblockUser,
   updatePassword,
-  forgotPasswordToken,
-  resetPassword,
+  forgotPasswordCode,
+  resetPasswordWithCode,
   saveAddress,
 
   // wishlist

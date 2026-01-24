@@ -53,6 +53,8 @@ const {
   // OTP
   sendVerificationCodeCtrl,
   verifyCodeCtrl,
+  forgotPasswordCode,
+  resetPasswordWithCode,
 } = require("../controller/userCtrl");
 
 const { authMiddleware, isAdmin } = require("../middlewares/authMiddleware");
@@ -70,8 +72,8 @@ router.post("/admin-login", loginAdmin);
 router.get("/refresh", handleRefreshToken);
 router.get("/logout", logout);
 
-router.post("/forgot-password-token", forgotPasswordToken);
-router.put("/reset-password/:token", resetPassword);
+router.post("/forgot-password-code", forgotPasswordCode);
+router.put("/reset-password-code", resetPasswordWithCode);
 router.put("/password", authMiddleware, updatePassword);
 
 /* =========================
