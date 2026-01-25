@@ -54,7 +54,7 @@ const normalizeMobile = (raw = "") => {
   if (s.startsWith("+")) return s;
 
   // fallback: add +
-  return `+${s}`;
+  return "";
 };
 
 const isMongoDupError = (err) =>
@@ -293,29 +293,46 @@ const identifyUserCtrl = asyncHandler(async (req, res) => {
   const { identity, type } = req.body;
 
   if (!identity) {
-    return res
-      .status(400)
-      .json({ exists: false, message: "identity is required" });
+    return res.status(400).json({ exists: false, message: "identity is required" });
   }
 
   const v = String(identity).trim();
 
-  let query = {};
-  if (type === "email") query.email = normalizeEmail(v);
-  else if (type === "phone") query.mobile = normalizeMobile(v);
-  else {
-    if (v.includes("@")) query.email = normalizeEmail(v);
-    else query.mobile = normalizeMobile(v);
-  }
+  let user = null;
+  let normalized = "";
+  let outType = "phone";
 
-  const user = await User.findOne(query).select("_id email mobile");
+  if (type === "email" || v.includes("@")) {
+    outType = "email";
+    normalized = normalizeEmail(v);
+    user = await User.findOne({ email: normalized }).select("_id email mobile");
+  } else {
+    outType = "phone";
+    normalized = normalizeMobile(v);
+
+    // ✅ try matching common legacy formats too
+    const digits = normalized.replace(/[^\d]/g, ""); // 2567xxxxxxxx
+    const national = digits.startsWith("256") ? digits.slice(3) : digits; // 7xxxxxxxx
+    const legacy0 = national ? "0" + national : ""; // 07xxxxxxxx
+
+    const candidates = [
+      normalized,              // +2567...
+      digits,                  // 2567...
+      national,                // 7...
+      legacy0,                 // 07...
+      v.replace(/[^\d+]/g, ""),// as typed (clean)
+    ].filter(Boolean);
+
+    user = await User.findOne({ mobile: { $in: candidates } }).select("_id email mobile");
+  }
 
   return res.status(200).json({
     exists: Boolean(user),
-    type: query.email ? "email" : "phone",
-    normalized: query.email ? query.email : query.mobile,
+    type: outType,
+    normalized,
   });
 });
+
 
 // ============================
 // ✅ ADMIN LOGIN
