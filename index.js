@@ -48,9 +48,9 @@ dbConnect();
    - Keeps credentials true (cookies)
 ========================= */
 const allowedOrigins = [
-  "https://www.kupto.co",
   "https://kupto.co",
-  "https://kupto-admin.com",
+  "https://www.kupto.co",
+  "http://kupto.co",
 
   "http://localhost:3000",
   "http://127.0.0.1:3000",
@@ -63,24 +63,22 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // allow non-browser clients (Postman/mobile/native apps)
     if (!origin) return callback(null, true);
 
-    // allow if in whitelist
     if (allowedOrigins.includes(origin)) return callback(null, true);
 
-    // ✅ do NOT throw error (avoid ERR_FAILED / "Network Error")
-    return callback(null, false);
+    console.log("❌ CORS blocked origin:", origin);
+    return callback(null, false); // block without crashing
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 
-// Apply CORS early (before routes)
+
 app.use(cors(corsOptions));
-// Preflight
 app.options("*", cors(corsOptions));
+
 
 /* =========================
    MIDDLEWARES
