@@ -53,7 +53,7 @@ const normalizeMobile = (raw = "") => {
   // If it already has + (non-Ug), keep it
   if (s.startsWith("+")) return s;
 
-  // fallback: add +
+  // fallback
   return "";
 };
 
@@ -61,19 +61,15 @@ const isMongoDupError = (err) =>
   err && (err.code === 11000 || err?.name === "MongoServerError");
 
 // ✅ Cookie options
-// - If frontend is on kupto.co and API on api.kupto.co (cross-site),
-//   you need sameSite:"none" + secure:true in production.
-// - Add path to make clearing consistent.
-// - Optionally add COOKIE_DOMAIN (e.g. ".kupto.co") if you want subdomain sharing.
 const getCookieOptions = () => {
   const isProd = process.env.NODE_ENV === "production";
   const isCrossSite =
     String(process.env.CROSS_SITE_COOKIES || "").toLowerCase() === "true";
-  const cookieDomain = process.env.COOKIE_DOMAIN; // e.g. ".kupto.co" or leave undefined
+  const cookieDomain = process.env.COOKIE_DOMAIN; // e.g. ".kupto.co"
 
   const base = {
     httpOnly: true,
-    path: "/", // ✅ important for consistent clearCookie
+    path: "/",
     maxAge: 72 * 60 * 60 * 1000,
     ...(cookieDomain ? { domain: cookieDomain } : {}),
   };
@@ -99,10 +95,11 @@ const invalidCreds = (res) => {
   throw new Error("Invalid Credentials");
 };
 
+// ✅ ensure ObjectId string from populated object or raw id
+const toId = (v) => (v && typeof v === "object" ? v._id : v);
+
 // ============================
 // ✅ REGISTER
-// Matches schema: firstname, lastname, mobile, dob, password required; email optional
-// Returns token (frontend expects)
 // ============================
 const registerUserCtrl = asyncHandler(async (req, res) => {
   const { firstname, lastname, email, mobile, dob, password } = req.body;
@@ -120,7 +117,6 @@ const registerUserCtrl = asyncHandler(async (req, res) => {
     throw new Error("mobile is not valid");
   }
 
-  // prevent duplicates by email OR phone
   const or = [{ mobile: cleanMobile }];
   if (cleanEmail) or.push({ email: cleanEmail });
 
@@ -137,10 +133,9 @@ const registerUserCtrl = asyncHandler(async (req, res) => {
       email: cleanEmail,
       mobile: cleanMobile,
       dob: new Date(dob),
-      password, // hashed by pre-save hook
+      password,
     });
 
-    // create refresh token cookie like login
     const refreshToken = generateRefreshToken(newUser._id);
     newUser.refreshToken = refreshToken;
     await newUser.save();
@@ -167,9 +162,6 @@ const registerUserCtrl = asyncHandler(async (req, res) => {
 
 // ============================
 // ✅ LOGIN (supports email OR phone)
-// Accepts:
-// - { identity, type, password } OR
-// - old style { email, password } OR { mobile, password }
 // ============================
 const loginUserCtrl = asyncHandler(async (req, res) => {
   const { identity, type, email, mobile, password } = req.body;
@@ -190,9 +182,7 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
       ? { email: normalizeEmail(incomingIdentity) }
       : { mobile: normalizeMobile(incomingIdentity) };
 
-  // ✅ Important: ensure password is available even if schema later uses select:false
   const user = await User.findOne(query).select("+password");
-
   if (!user) return invalidCreds(res);
 
   const ok = await user.isPasswordMatched(password);
@@ -217,8 +207,6 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
 
 // ============================
 // ✅ GOOGLE LOGIN
-// If user exists -> login
-// If not exists -> profileRequired:true (frontend collects mobile + dob then calls /register)
 // ============================
 const googleLoginCtrl = asyncHandler(async (req, res) => {
   const { credential } = req.body;
@@ -293,7 +281,9 @@ const identifyUserCtrl = asyncHandler(async (req, res) => {
   const { identity, type } = req.body;
 
   if (!identity) {
-    return res.status(400).json({ exists: false, message: "identity is required" });
+    return res
+      .status(400)
+      .json({ exists: false, message: "identity is required" });
   }
 
   const v = String(identity).trim();
@@ -310,20 +300,21 @@ const identifyUserCtrl = asyncHandler(async (req, res) => {
     outType = "phone";
     normalized = normalizeMobile(v);
 
-    // ✅ try matching common legacy formats too
-    const digits = normalized.replace(/[^\d]/g, ""); // 2567xxxxxxxx
-    const national = digits.startsWith("256") ? digits.slice(3) : digits; // 7xxxxxxxx
-    const legacy0 = national ? "0" + national : ""; // 07xxxxxxxx
+    const digits = normalized.replace(/[^\d]/g, "");
+    const national = digits.startsWith("256") ? digits.slice(3) : digits;
+    const legacy0 = national ? "0" + national : "";
 
     const candidates = [
-      normalized,              // +2567...
-      digits,                  // 2567...
-      national,                // 7...
-      legacy0,                 // 07...
-      v.replace(/[^\d+]/g, ""),// as typed (clean)
+      normalized,
+      digits,
+      national,
+      legacy0,
+      v.replace(/[^\d+]/g, ""),
     ].filter(Boolean);
 
-    user = await User.findOne({ mobile: { $in: candidates } }).select("_id email mobile");
+    user = await User.findOne({ mobile: { $in: candidates } }).select(
+      "_id email mobile"
+    );
   }
 
   return res.status(200).json({
@@ -332,7 +323,6 @@ const identifyUserCtrl = asyncHandler(async (req, res) => {
     normalized,
   });
 });
-
 
 // ============================
 // ✅ ADMIN LOGIN
@@ -445,9 +435,7 @@ const updatedUser = asyncHandler(async (req, res) => {
       throw new Error("mobile is not valid");
     }
 
-    Object.keys(payload).forEach(
-      (k) => payload[k] === undefined && delete payload[k]
-    );
+    Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
 
     const user = await User.findByIdAndUpdate(_id, payload, { new: true }).select(
       "-password -refreshToken"
@@ -633,8 +621,7 @@ const userCart = asyncHandler(async (req, res) => {
         : Number(existing.printUnitPrice || 0);
 
     existing.printKey = printKey ?? existing.printKey ?? "";
-    existing.printPricingTitle =
-      printPricingTitle ?? existing.printPricingTitle ?? "";
+    existing.printPricingTitle = printPricingTitle ?? existing.printPricingTitle ?? "";
 
     existing.preparePriceOnce =
       preparePriceOnce != null
@@ -652,10 +639,7 @@ const userCart = asyncHandler(async (req, res) => {
         : existing.printDiscountMinQty ?? null;
 
     if (Array.isArray(uploadedFiles) && uploadedFiles.length) {
-      existing.uploadedFiles = [
-        ...(existing.uploadedFiles || []),
-        ...uploadedFiles,
-      ];
+      existing.uploadedFiles = [...(existing.uploadedFiles || []), ...uploadedFiles];
     }
 
     await existing.save();
@@ -679,8 +663,7 @@ const userCart = asyncHandler(async (req, res) => {
     printPricingTitle: printPricingTitle ?? "",
     preparePriceOnce: Number(preparePriceOnce || 0),
     preparePriceApplied: Boolean(preparePriceApplied || false),
-    printDiscountMinQty:
-      printDiscountMinQty != null ? Number(printDiscountMinQty) : null,
+    printDiscountMinQty: printDiscountMinQty != null ? Number(printDiscountMinQty) : null,
   });
 
   return res.json(newCart);
@@ -791,18 +774,24 @@ const generateReceiptHtml = (
 
   const firstName = escapeHtml(shippingInfo?.firstName || "");
   const lastName = escapeHtml(shippingInfo?.lastName || "");
+  const phone = escapeHtml(shippingInfo?.phone || "");
+  const email = escapeHtml(shippingInfo?.email || "");
   const address = escapeHtml(shippingInfo?.address || "Not provided");
   const region = escapeHtml(shippingInfo?.region || "Not provided");
-  const subRegion = escapeHtml(shippingInfo?.subRegion || "Not provided");
+  const subRegion = escapeHtml(shippingInfo?.subRegion || "");
 
   const paymentMethod = escapeHtml(paymentInfo?.paymentMethod || "Not specified");
   const payStatus = escapeHtml(paymentInfo?.status || "Pending");
+
   const paypalOrderID = paymentInfo?.paypalOrderID
     ? escapeHtml(paymentInfo.paypalOrderID)
     : "";
-  const paypalPaymentID = paymentInfo?.paypalPaymentID
-    ? escapeHtml(paymentInfo.paypalPaymentID)
+
+  // ✅ FIX: use paypalCaptureID (not paypalPaymentID)
+  const paypalCaptureID = paymentInfo?.paypalCaptureID
+    ? escapeHtml(paymentInfo.paypalCaptureID)
     : "";
+
   const paypalPayerID = paymentInfo?.paypalPayerID
     ? escapeHtml(paymentInfo.paypalPayerID)
     : "";
@@ -812,21 +801,17 @@ const generateReceiptHtml = (
       const prod = item?.product;
 
       const title = escapeHtml(getProductTitle(prod));
-      const desc = escapeHtml(
-        getProductDescription(prod) || "No description available"
-      );
+      const desc = escapeHtml(getProductDescription(prod) || "No description available");
       const imgUrl = getProductImageUrl(prod);
 
       const qty = escapeHtml(item?.quantity ?? 1);
-      const price = formatUGX(item?.price);
+      const price = formatUGX(item?.unitPrice);
 
       const sizeLabel = escapeHtml(getVariantLabel(item?.size) || "Not specified");
       const colorLabel = escapeHtml(getVariantLabel(item?.color) || "Not specified");
       const instruction = escapeHtml(item?.instruction || "None");
 
-      const uploadedFiles = Array.isArray(item?.uploadedFiles)
-        ? item.uploadedFiles
-        : [];
+      const uploadedFiles = Array.isArray(item?.uploadedFiles) ? item.uploadedFiles : [];
 
       const filesHtml = uploadedFiles.length
         ? `<div style="margin-top:8px;">
@@ -838,9 +823,7 @@ const generateReceiptHtml = (
                      f?.fileName ||
                        f?.original_filename ||
                        f?.originalFilename ||
-                       (f?.public_id
-                         ? String(f.public_id).split("/").pop()
-                         : "file")
+                       (f?.public_id ? String(f.public_id).split("/").pop() : "file")
                    );
                    const url = f?.url ? escapeHtml(f.url) : "";
                    return `<li style="margin:4px 0;">
@@ -862,9 +845,7 @@ const generateReceiptHtml = (
             <div style="width: 120px; height: 120px; border: 1px solid #f0f0f0; border-radius: 10px; overflow:hidden; background:#fff; display:flex; align-items:center; justify-content:center;">
               ${
                 imgUrl
-                  ? `<img src="${escapeHtml(
-                      imgUrl
-                    )}" alt="${title}" style="width:100%; height:100%; object-fit:contain;" />`
+                  ? `<img src="${escapeHtml(imgUrl)}" alt="${title}" style="width:100%; height:100%; object-fit:contain;" />`
                   : `<div style="font-size:12px; color:#999; padding:8px; text-align:center;">No image</div>`
               }
             </div>
@@ -893,21 +874,9 @@ const generateReceiptHtml = (
     String(paymentInfo?.paymentMethod || "").toLowerCase() === "paypal"
       ? `
           <div style="margin-top:10px; font-size:13px; color:#222; line-height:1.7;">
-            ${
-              paypalOrderID
-                ? `<div><strong>PayPal Order ID:</strong> ${paypalOrderID}</div>`
-                : ""
-            }
-            ${
-              paypalPaymentID
-                ? `<div><strong>PayPal Payment ID:</strong> ${paypalPaymentID}</div>`
-                : ""
-            }
-            ${
-              paypalPayerID
-                ? `<div><strong>PayPal Payer ID:</strong> ${paypalPayerID}</div>`
-                : ""
-            }
+            ${paypalOrderID ? `<div><strong>PayPal Order ID:</strong> ${paypalOrderID}</div>` : ""}
+            ${paypalCaptureID ? `<div><strong>PayPal Capture ID:</strong> ${paypalCaptureID}</div>` : ""}
+            ${paypalPayerID ? `<div><strong>PayPal Payer ID:</strong> ${paypalPayerID}</div>` : ""}
           </div>
         `
       : "";
@@ -927,7 +896,9 @@ const generateReceiptHtml = (
         <h3 style="margin: 0 0 8px; font-size: 16px;">Shipping Information</h3>
         <div style="font-size: 13px; color:#222; line-height:1.7;">
           <div><strong>Name:</strong> ${firstName} ${lastName}</div>
-          <div><strong>Address:</strong> ${address}, ${region}, ${subRegion}</div>
+          ${phone ? `<div><strong>Phone:</strong> ${phone}</div>` : ""}
+          ${email ? `<div><strong>Email:</strong> ${email}</div>` : ""}
+          <div><strong>Address:</strong> ${address}, ${region}${subRegion ? `, ${subRegion}` : ""}</div>
         </div>
 
         <hr style="border:none; border-top:1px solid #eee; margin: 14px 0;" />
@@ -948,9 +919,7 @@ const generateReceiptHtml = (
 
           <div style="text-align:right; min-width: 220px;">
             <div style="font-size: 13px; color:#666;">Total</div>
-            <div style="font-size: 20px; font-weight: 800;">${escapeHtml(
-              formatUGX(totalPrice)
-            )}</div>
+            <div style="font-size: 20px; font-weight: 800;">${escapeHtml(formatUGX(totalPrice))}</div>
           </div>
         </div>
 
@@ -963,35 +932,68 @@ const generateReceiptHtml = (
 };
 
 // ============================
-// ✅ CREATE ORDER
+// ✅ CREATE ORDER (guest + logged-in)
+// ============================
+// ============================
+// ✅ CREATE ORDER (AUTH ONLY - NO GUEST)
 // ============================
 const createOrder = asyncHandler(async (req, res) => {
   const {
     shippingInfo,
     orderItems,
+    itemsTotal,
+    shippingPrice,
+    setupFeeTotal,
     totalPrice,
     totalPriceAfterDiscount,
     paymentInfo,
+    note,
   } = req.body;
-  const { _id } = req.user;
 
+  // ✅ MUST be logged in
+  const userId = req.user?._id;
+  if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+  if (!shippingInfo) {
+    return res.status(400).json({ message: "shippingInfo is required" });
+  }
   if (!Array.isArray(orderItems) || orderItems.length === 0) {
     return res
       .status(400)
       .json({ message: "orderItems must be a non-empty array" });
   }
-
-  if (!shippingInfo) {
-    return res.status(400).json({ message: "shippingInfo is required" });
-  }
-
-  const safeOrderItems = orderItems.map((item) => ({
-    ...item,
-    instruction: item?.instruction ? item.instruction : null,
-  }));
-
   if (!paymentInfo || typeof paymentInfo !== "object") {
     return res.status(400).json({ message: "paymentInfo is required" });
+  }
+
+  // normalize shipping contact
+  const safeShipping = {
+    firstName: String(shippingInfo.firstName || "").trim(),
+    lastName: String(shippingInfo.lastName || "").trim(),
+    phone:
+      normalizeMobile(shippingInfo.phone || "") ||
+      String(shippingInfo.phone || "").trim(),
+    email: normalizeEmail(shippingInfo.email || ""),
+    address: String(shippingInfo.address || "").trim(),
+    region: String(shippingInfo.region || "").trim(),
+    subRegion: String(shippingInfo.subRegion || "").trim(),
+  };
+
+  if (
+    !safeShipping.firstName ||
+    !safeShipping.lastName ||
+    !safeShipping.address ||
+    !safeShipping.region
+  ) {
+    return res
+      .status(400)
+      .json({ message: "shippingInfo is missing required fields" });
+  }
+  if (!safeShipping.phone) {
+    return res.status(400).json({ message: "shippingInfo.phone is required" });
+  }
+  if (!safeShipping.email) {
+    return res.status(400).json({ message: "shippingInfo.email is required" });
   }
 
   const paymentMethod = String(paymentInfo.paymentMethod || "").trim();
@@ -999,94 +1001,100 @@ const createOrder = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Payment method is required" });
   }
 
-  const paypalOrderID =
-    paymentInfo.paypalOrderID ||
-    paymentInfo.paypal_order_id ||
-    paymentInfo.orderID ||
-    paymentInfo.orderId ||
-    null;
+  const allowed = ["cashOnDelivery", "mobileMoney", "card", "paypal"];
+  if (!allowed.includes(paymentMethod)) {
+    return res.status(400).json({ message: "Invalid payment method" });
+  }
 
-  const paypalPaymentID =
-    paymentInfo.paypalPaymentID ||
-    paymentInfo.paypal_payment_id ||
-    paymentInfo.paymentID ||
-    paymentInfo.paymentId ||
-    null;
+  const paypalOrderID =
+    paymentInfo.paypalOrderID || paymentInfo.orderID || paymentInfo.orderId || null;
+
+  const paypalCaptureID =
+    paymentInfo.paypalCaptureID || paymentInfo.captureID || paymentInfo.captureId || null;
 
   const paypalPayerID =
-    paymentInfo.paypalPayerID ||
-    paymentInfo.payerID ||
-    paymentInfo.payerId ||
-    null;
+    paymentInfo.paypalPayerID || paymentInfo.payerID || paymentInfo.payerId || null;
 
   const safePaymentInfo = {
     paymentMethod,
     status: paymentInfo.status || "Pending",
     paypalOrderID: null,
-    paypalPaymentID: null,
+    paypalCaptureID: null,
     paypalPayerID: null,
+    provider: paymentInfo.provider || null,
+    transactionId: paymentInfo.transactionId || null,
   };
 
-  const isPayPal = paymentMethod.toLowerCase() === "paypal";
-
-  if (isPayPal) {
-    if (!paypalOrderID)
+  if (paymentMethod === "paypal") {
+    if (!paypalOrderID) {
       return res.status(400).json({ message: "PayPal Order ID is required" });
-
-    if (!paypalPaymentID && !paypalPayerID) {
-      return res
-        .status(400)
-        .json({ message: "PayPal Payment ID (or Payer ID) is required" });
     }
-
     safePaymentInfo.paypalOrderID = String(paypalOrderID);
-    safePaymentInfo.paypalPaymentID = paypalPaymentID ? String(paypalPaymentID) : null;
+    safePaymentInfo.paypalCaptureID = paypalCaptureID ? String(paypalCaptureID) : null;
     safePaymentInfo.paypalPayerID = paypalPayerID ? String(paypalPayerID) : null;
   }
 
+  // map items: ensure ids + required unitPrice
+  const safeOrderItems = orderItems.map((it) => ({
+    product: toId(it.product),
+    color: toId(it.color) || null,
+    size: toId(it.size) || null,
+    uploadedFiles: Array.isArray(it.uploadedFiles) ? it.uploadedFiles : [],
+    quantity: Math.max(1, Number(it.quantity || 1)),
+    unitPrice: Number(it.unitPrice || 0),
+    printUnitPrice: Number(it.printUnitPrice || 0),
+    printPricingTitle: it.printPricingTitle || null,
+    printSide: it.printSide || "",
+    instruction: it.instruction ?? null,
+  }));
+
   const order = await Order.create({
-    shippingInfo,
+    user: userId,
+    guestInfo: null, // ✅ no guest
+    shippingInfo: safeShipping,
     orderItems: safeOrderItems,
-    totalPrice,
-    totalPriceAfterDiscount,
+
+    itemsTotal: Number(itemsTotal || 0),
+    shippingPrice: Number(shippingPrice || 0),
+    setupFeeTotal: Number(setupFeeTotal || 0),
+
+    totalPrice: Number(totalPrice || 0),
+    totalPriceAfterDiscount: Number(totalPriceAfterDiscount || totalPrice || 0),
+
     paymentInfo: safePaymentInfo,
-    user: _id,
+    note: note ?? null,
   });
 
-  const user = await User.findById(_id).select("email firstname lastname");
-  const userEmail = user?.email;
+  // ✅ send receipt to ACCOUNT email only (no guest fallback)
+  const receiptTo = (await User.findById(userId).select("email"))?.email || null;
 
-  if (userEmail) {
-    const receiptHtml = generateReceiptHtml(
-      order,
-      shippingInfo,
-      safeOrderItems,
-      totalPrice,
-      safePaymentInfo
-    );
-
-    const emailData = {
-      to: userEmail,
-      subject: "Your Order Receipt",
-      text: "Thank you for your purchase! Please find your receipt below.",
-      html: receiptHtml,
-    };
-
-    // don't fail order if email fails
+  if (receiptTo) {
     try {
-      await sendEmail(emailData);
-    } catch (emailError) {
-      console.error("Error sending email:", emailError);
+      const fullOrder = await Order.findById(order._id)
+        .populate("orderItems.product")
+        .populate("orderItems.color")
+        .populate("orderItems.size");
+
+      const receiptHtml = generateReceiptHtml(
+        fullOrder || order,
+        safeShipping,
+        (fullOrder || order)?.orderItems || safeOrderItems,
+        Number(totalPrice || 0),
+        safePaymentInfo
+      );
+
+      await sendEmail({
+        to: receiptTo,
+        subject: "Your Order Receipt",
+        text: "Thank you for your purchase! Please find your receipt below.",
+        html: receiptHtml,
+      });
+    } catch (e) {
+      console.error("Receipt email failed:", e);
     }
   }
 
-  return res.status(201).json({
-    order,
-    success: true,
-    message: userEmail
-      ? "Order created and receipt sent successfully."
-      : "Order created successfully.",
-  });
+  return res.status(201).json({ success: true, order });
 });
 
 // ============================
@@ -1210,8 +1218,7 @@ const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "identity and type are required" });
   }
 
-  const normalized =
-    type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+  const normalized = type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
 
   if (!normalized) {
     return res.status(400).json({ message: "identity is not valid" });
@@ -1241,7 +1248,6 @@ const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
     });
   }
 
-  // Phone SMS not configured
   return res.status(200).json({
     success: true,
     message: "Verification code generated. (SMS sending not configured yet)",
@@ -1256,13 +1262,10 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
   const { identity, type, code } = req.body;
 
   if (!identity || !type || !code) {
-    return res
-      .status(400)
-      .json({ message: "identity, type and code are required" });
+    return res.status(400).json({ message: "identity, type and code are required" });
   }
 
-  const normalized =
-    type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+  const normalized = type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
 
   if (!normalized) {
     return res.status(400).json({ message: "identity is not valid" });
@@ -1299,23 +1302,15 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
 // ✅ PASSWORD RESET VIA EMAIL CODE
 // ============================
 
-// In-memory store (OK for development). For production, use Redis/DB.
 const PW_RESET_STORE = new Map();
-const generateResetCode = () =>
-  Math.floor(100000 + Math.random() * 900000).toString();
+const generateResetCode = () => Math.floor(100000 + Math.random() * 900000).toString();
 
-// Optional: do NOT leak whether user exists
 const okGenericForgotResponse = (res) =>
   res.status(200).json({
     success: true,
     message: "If an account exists for this email, a verification code was sent.",
   });
 
-/**
- * POST /user/forgot-password-code
- * Body: { email }
- * Sends a 6-digit code to email.
- */
 const forgotPasswordCode = asyncHandler(async (req, res) => {
   const email = normalizeEmail(req.body?.email);
 
@@ -1326,13 +1321,11 @@ const forgotPasswordCode = asyncHandler(async (req, res) => {
 
   const user = await User.findOne({ email });
 
-  // ✅ Don't reveal if user exists
   if (!user) return okGenericForgotResponse(res);
 
   const code = generateResetCode();
-  const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+  const expiresAt = Date.now() + 10 * 60 * 1000;
 
-  // store by email
   PW_RESET_STORE.set(email, { code, expiresAt });
 
   const data = {
@@ -1347,11 +1340,6 @@ const forgotPasswordCode = asyncHandler(async (req, res) => {
   return okGenericForgotResponse(res);
 });
 
-/**
- * ✅ NEW: POST /user/verify-reset-code
- * Body: { email, code }
- * This fixes your 404 and lets the frontend verify first (without changing password).
- */
 const verifyResetCode = asyncHandler(async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const code = String(req.body?.code || "").trim();
@@ -1379,7 +1367,6 @@ const verifyResetCode = asyncHandler(async (req, res) => {
     throw new Error("Invalid code");
   }
 
-  // ✅ Do NOT consume the code here (so user can still reset password on next page)
   return res.status(200).json({
     success: true,
     message: "Code verified",
@@ -1387,11 +1374,6 @@ const verifyResetCode = asyncHandler(async (req, res) => {
   });
 });
 
-/**
- * PUT /user/reset-password-code
- * Body: { email, code, password }
- * Verifies code + resets password.
- */
 const resetPasswordWithCode = asyncHandler(async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const code = String(req.body?.code || "").trim();
@@ -1420,7 +1402,6 @@ const resetPasswordWithCode = asyncHandler(async (req, res) => {
     throw new Error("Invalid code");
   }
 
-  // ✅ consume code (one-time)
   PW_RESET_STORE.delete(email);
 
   const user = await User.findOne({ email }).select("+password");
@@ -1462,7 +1443,7 @@ module.exports = {
 
   // password reset
   forgotPasswordCode,
-  verifyResetCode, // ✅ added (fixes /verify-reset-code 404)
+  verifyResetCode,
   resetPasswordWithCode,
 
   saveAddress,
