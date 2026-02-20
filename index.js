@@ -47,7 +47,12 @@ dbConnect();
    - DOES NOT throw Error (prevents browser "Network Error"/ERR_FAILED)
    - Keeps credentials true (cookies)
 ========================= */
+
+
 const allowedOrigins = [
+  "https://kupto-admin.com",
+  "https://www.kupto-admin.com",
+
   "https://kupto.co",
   "https://www.kupto.co",
   "http://kupto.co",
