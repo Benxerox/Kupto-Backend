@@ -249,9 +249,11 @@ const getaProduct = asyncHandler(async (req, res) => {
   const findProduct = await Product.findById(id)
     .populate("color")
     .populate("size")
-    .populate("category");
+    .populate("category")
+    .populate({ path: "variantImages.color", model: "Color" }); // ✅ IMPORTANT
 
-  return res.json(findProduct);
+  return res.json({ data: findProduct }); // ✅ consistent
+
 });
 
 /* =========================================
