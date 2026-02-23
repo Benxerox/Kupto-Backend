@@ -260,34 +260,56 @@ const getaProduct = asyncHandler(async (req, res) => {
    GET ALL PRODUCTS
 ========================================= */
 const getAllProduct = asyncHandler(async (req, res) => {
+  // 1) clone query params
   const queryObj = { ...req.query };
+
+  // 2) remove special params (same as your code)
   const excludeFields = ["page", "sort", "limit", "fields"];
   excludeFields.forEach((el) => delete queryObj[el]);
 
+  // 3) build filter + support gte/gt/lte/lt
   let queryStr = JSON.stringify(queryObj);
   queryStr = queryStr.replace(/\b(gte|gt|lte|lt)\b/g, (match) => `$${match}`);
 
-  let query = Product.find(JSON.parse(queryStr));
+  const filter = JSON.parse(queryStr);
 
-  if (req.query.sort) query = query.sort(req.query.sort.split(",").join(" "));
-  else query = query.sort("-createdAt");
+  // 4) sorting (same behavior as your code)
+  const sortBy = req.query.sort ? req.query.sort.split(",").join(" ") : "-createdAt";
 
-  if (req.query.fields) query = query.select(req.query.fields.split(",").join(" "));
-  else query = query.select("-__v");
+  // 5) field selection (same behavior as your code)
+  const selectFields = req.query.fields ? req.query.fields.split(",").join(" ") : "-__v";
 
-  const page = Number(req.query.page || 1);
-  const limit = Number(req.query.limit || 100);
+  // 6) pagination (keep your defaults, but safer)
+  const page = Math.max(1, Number(req.query.page || 1));
+  const limit = Math.max(1, Number(req.query.limit || 100));
   const skip = (page - 1) * limit;
 
-  query = query.skip(skip).limit(limit);
+  // ✅ IMPORTANT FIX: count documents using the SAME filter (not all products)
+  const total = await Product.countDocuments(filter);
+  const pages = Math.ceil(total / limit);
 
-  if (req.query.page) {
-    const productCount = await Product.countDocuments();
-    if (skip >= productCount) throw new Error("This Page does not exist");
+  // ✅ IMPORTANT FIX: validate page against FILTERED total
+  if (req.query.page && skip >= total) {
+    return res.status(400).json({ message: "This Page does not exist" });
   }
 
-  const product = await query;
-  return res.json(product);
+  // 7) run query
+  const data = await Product.find(filter)
+    .sort(sortBy)
+    .select(selectFields)
+    .skip(skip)
+    .limit(limit);
+
+  // 8) return data + meta (so frontend/admin can load ALL products reliably)
+  return res.json({
+    total,
+    page,
+    limit,
+    pages,
+    hasNextPage: page < pages,
+    hasPrevPage: page > 1,
+    data,
+  });
 });
 
 /* =========================================
