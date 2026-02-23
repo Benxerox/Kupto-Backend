@@ -57,6 +57,13 @@ const normalizeMobile = (raw = "") => {
   return "";
 };
 
+// ✅ min qty sanitizer (prevents Mongoose "min: 1" error)
+const normalizeMinQty = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 1) return null; // convert 0/undefined/NaN -> null
+  return Math.floor(n);
+};
+
 const isMongoDupError = (err) =>
   err && (err.code === 11000 || err?.name === "MongoServerError");
 
@@ -435,7 +442,9 @@ const updatedUser = asyncHandler(async (req, res) => {
       throw new Error("mobile is not valid");
     }
 
-    Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+    Object.keys(payload).forEach(
+      (k) => payload[k] === undefined && delete payload[k]
+    );
 
     const user = await User.findByIdAndUpdate(_id, payload, { new: true }).select(
       "-password -refreshToken"
@@ -493,7 +502,9 @@ const deleteaUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
 
-  const user = await User.findByIdAndDelete(id).select("-password -refreshToken");
+  const user = await User.findByIdAndDelete(id).select(
+    "-password -refreshToken"
+  );
   res.json({ deleteaUser: user });
 });
 
@@ -504,7 +515,11 @@ const blockUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
 
-  const user = await User.findByIdAndUpdate(id, { isBlocked: true }, { new: true });
+  const user = await User.findByIdAndUpdate(
+    id,
+    { isBlocked: true },
+    { new: true }
+  );
   res.json(user);
 });
 
@@ -597,6 +612,10 @@ const userCart = asyncHandler(async (req, res) => {
 
   const qty = Math.max(1, Number(quantity || 1));
 
+  // ✅ FIX: sanitize discount min qty (prevents saving 0 which violates min:1)
+  const cleanPrintDiscountMinQty =
+    printDiscountMinQty !== undefined ? normalizeMinQty(printDiscountMinQty) : undefined;
+
   const existing = await Cart.findOne({
     userId: _id,
     productId,
@@ -621,7 +640,8 @@ const userCart = asyncHandler(async (req, res) => {
         : Number(existing.printUnitPrice || 0);
 
     existing.printKey = printKey ?? existing.printKey ?? "";
-    existing.printPricingTitle = printPricingTitle ?? existing.printPricingTitle ?? "";
+    existing.printPricingTitle =
+      printPricingTitle ?? existing.printPricingTitle ?? "";
 
     existing.preparePriceOnce =
       preparePriceOnce != null
@@ -633,13 +653,16 @@ const userCart = asyncHandler(async (req, res) => {
         ? Boolean(preparePriceApplied)
         : Boolean(existing.preparePriceApplied);
 
-    existing.printDiscountMinQty =
-      printDiscountMinQty != null
-        ? Number(printDiscountMinQty)
-        : existing.printDiscountMinQty ?? null;
+    // ✅ FIX: only set if field is present in request; value becomes null or >=1
+    if (cleanPrintDiscountMinQty !== undefined) {
+      existing.printDiscountMinQty = cleanPrintDiscountMinQty;
+    }
 
     if (Array.isArray(uploadedFiles) && uploadedFiles.length) {
-      existing.uploadedFiles = [...(existing.uploadedFiles || []), ...uploadedFiles];
+      existing.uploadedFiles = [
+        ...(existing.uploadedFiles || []),
+        ...uploadedFiles,
+      ];
     }
 
     await existing.save();
@@ -663,7 +686,9 @@ const userCart = asyncHandler(async (req, res) => {
     printPricingTitle: printPricingTitle ?? "",
     preparePriceOnce: Number(preparePriceOnce || 0),
     preparePriceApplied: Boolean(preparePriceApplied || false),
-    printDiscountMinQty: printDiscountMinQty != null ? Number(printDiscountMinQty) : null,
+
+    // ✅ FIX: normalize here too (0 -> null)
+    printDiscountMinQty: normalizeMinQty(printDiscountMinQty),
   });
 
   return res.json(newCart);
@@ -787,7 +812,6 @@ const generateReceiptHtml = (
     ? escapeHtml(paymentInfo.paypalOrderID)
     : "";
 
-  // ✅ FIX: use paypalCaptureID (not paypalPaymentID)
   const paypalCaptureID = paymentInfo?.paypalCaptureID
     ? escapeHtml(paymentInfo.paypalCaptureID)
     : "";
@@ -801,7 +825,9 @@ const generateReceiptHtml = (
       const prod = item?.product;
 
       const title = escapeHtml(getProductTitle(prod));
-      const desc = escapeHtml(getProductDescription(prod) || "No description available");
+      const desc = escapeHtml(
+        getProductDescription(prod) || "No description available"
+      );
       const imgUrl = getProductImageUrl(prod);
 
       const qty = escapeHtml(item?.quantity ?? 1);
@@ -811,7 +837,9 @@ const generateReceiptHtml = (
       const colorLabel = escapeHtml(getVariantLabel(item?.color) || "Not specified");
       const instruction = escapeHtml(item?.instruction || "None");
 
-      const uploadedFiles = Array.isArray(item?.uploadedFiles) ? item.uploadedFiles : [];
+      const uploadedFiles = Array.isArray(item?.uploadedFiles)
+        ? item.uploadedFiles
+        : [];
 
       const filesHtml = uploadedFiles.length
         ? `<div style="margin-top:8px;">
@@ -823,7 +851,9 @@ const generateReceiptHtml = (
                      f?.fileName ||
                        f?.original_filename ||
                        f?.originalFilename ||
-                       (f?.public_id ? String(f.public_id).split("/").pop() : "file")
+                       (f?.public_id
+                         ? String(f.public_id).split("/").pop()
+                         : "file")
                    );
                    const url = f?.url ? escapeHtml(f.url) : "";
                    return `<li style="margin:4px 0;">
@@ -845,7 +875,9 @@ const generateReceiptHtml = (
             <div style="width: 120px; height: 120px; border: 1px solid #f0f0f0; border-radius: 10px; overflow:hidden; background:#fff; display:flex; align-items:center; justify-content:center;">
               ${
                 imgUrl
-                  ? `<img src="${escapeHtml(imgUrl)}" alt="${title}" style="width:100%; height:100%; object-fit:contain;" />`
+                  ? `<img src="${escapeHtml(
+                      imgUrl
+                    )}" alt="${title}" style="width:100%; height:100%; object-fit:contain;" />`
                   : `<div style="font-size:12px; color:#999; padding:8px; text-align:center;">No image</div>`
               }
             </div>
@@ -874,9 +906,21 @@ const generateReceiptHtml = (
     String(paymentInfo?.paymentMethod || "").toLowerCase() === "paypal"
       ? `
           <div style="margin-top:10px; font-size:13px; color:#222; line-height:1.7;">
-            ${paypalOrderID ? `<div><strong>PayPal Order ID:</strong> ${paypalOrderID}</div>` : ""}
-            ${paypalCaptureID ? `<div><strong>PayPal Capture ID:</strong> ${paypalCaptureID}</div>` : ""}
-            ${paypalPayerID ? `<div><strong>PayPal Payer ID:</strong> ${paypalPayerID}</div>` : ""}
+            ${
+              paypalOrderID
+                ? `<div><strong>PayPal Order ID:</strong> ${paypalOrderID}</div>`
+                : ""
+            }
+            ${
+              paypalCaptureID
+                ? `<div><strong>PayPal Capture ID:</strong> ${paypalCaptureID}</div>`
+                : ""
+            }
+            ${
+              paypalPayerID
+                ? `<div><strong>PayPal Payer ID:</strong> ${paypalPayerID}</div>`
+                : ""
+            }
           </div>
         `
       : "";
@@ -898,7 +942,9 @@ const generateReceiptHtml = (
           <div><strong>Name:</strong> ${firstName} ${lastName}</div>
           ${phone ? `<div><strong>Phone:</strong> ${phone}</div>` : ""}
           ${email ? `<div><strong>Email:</strong> ${email}</div>` : ""}
-          <div><strong>Address:</strong> ${address}, ${region}${subRegion ? `, ${subRegion}` : ""}</div>
+          <div><strong>Address:</strong> ${address}, ${region}${
+    subRegion ? `, ${subRegion}` : ""
+  }</div>
         </div>
 
         <hr style="border:none; border-top:1px solid #eee; margin: 14px 0;" />
@@ -919,7 +965,9 @@ const generateReceiptHtml = (
 
           <div style="text-align:right; min-width: 220px;">
             <div style="font-size: 13px; color:#666;">Total</div>
-            <div style="font-size: 20px; font-weight: 800;">${escapeHtml(formatUGX(totalPrice))}</div>
+            <div style="font-size: 20px; font-weight: 800;">${escapeHtml(
+              formatUGX(totalPrice)
+            )}</div>
           </div>
         </div>
 
@@ -931,9 +979,6 @@ const generateReceiptHtml = (
   `;
 };
 
-// ============================
-// ✅ CREATE ORDER (guest + logged-in)
-// ============================
 // ============================
 // ✅ CREATE ORDER (AUTH ONLY - NO GUEST)
 // ============================
@@ -1007,13 +1052,22 @@ const createOrder = asyncHandler(async (req, res) => {
   }
 
   const paypalOrderID =
-    paymentInfo.paypalOrderID || paymentInfo.orderID || paymentInfo.orderId || null;
+    paymentInfo.paypalOrderID ||
+    paymentInfo.orderID ||
+    paymentInfo.orderId ||
+    null;
 
   const paypalCaptureID =
-    paymentInfo.paypalCaptureID || paymentInfo.captureID || paymentInfo.captureId || null;
+    paymentInfo.paypalCaptureID ||
+    paymentInfo.captureID ||
+    paymentInfo.captureId ||
+    null;
 
   const paypalPayerID =
-    paymentInfo.paypalPayerID || paymentInfo.payerID || paymentInfo.payerId || null;
+    paymentInfo.paypalPayerID ||
+    paymentInfo.payerID ||
+    paymentInfo.payerId ||
+    null;
 
   const safePaymentInfo = {
     paymentMethod,
@@ -1030,7 +1084,9 @@ const createOrder = asyncHandler(async (req, res) => {
       return res.status(400).json({ message: "PayPal Order ID is required" });
     }
     safePaymentInfo.paypalOrderID = String(paypalOrderID);
-    safePaymentInfo.paypalCaptureID = paypalCaptureID ? String(paypalCaptureID) : null;
+    safePaymentInfo.paypalCaptureID = paypalCaptureID
+      ? String(paypalCaptureID)
+      : null;
     safePaymentInfo.paypalPayerID = paypalPayerID ? String(paypalPayerID) : null;
   }
 
@@ -1209,7 +1265,8 @@ const getYearlyTotalOrders = asyncHandler(async (req, res) => {
 // ✅ OTP / Verification Code
 // ============================
 const OTP_STORE = new Map();
-const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
+const generateOtp = () =>
+  Math.floor(100000 + Math.random() * 900000).toString();
 
 const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
   const { identity, type } = req.body;
@@ -1218,7 +1275,8 @@ const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "identity and type are required" });
   }
 
-  const normalized = type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+  const normalized =
+    type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
 
   if (!normalized) {
     return res.status(400).json({ message: "identity is not valid" });
@@ -1262,10 +1320,13 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
   const { identity, type, code } = req.body;
 
   if (!identity || !type || !code) {
-    return res.status(400).json({ message: "identity, type and code are required" });
+    return res
+      .status(400)
+      .json({ message: "identity, type and code are required" });
   }
 
-  const normalized = type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+  const normalized =
+    type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
 
   if (!normalized) {
     return res.status(400).json({ message: "identity is not valid" });
@@ -1301,14 +1362,15 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
 // ============================
 // ✅ PASSWORD RESET VIA EMAIL CODE
 // ============================
-
 const PW_RESET_STORE = new Map();
-const generateResetCode = () => Math.floor(100000 + Math.random() * 900000).toString();
+const generateResetCode = () =>
+  Math.floor(100000 + Math.random() * 900000).toString();
 
 const okGenericForgotResponse = (res) =>
   res.status(200).json({
     success: true,
-    message: "If an account exists for this email, a verification code was sent.",
+    message:
+      "If an account exists for this email, a verification code was sent.",
   });
 
 const forgotPasswordCode = asyncHandler(async (req, res) => {
