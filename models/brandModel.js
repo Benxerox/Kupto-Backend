@@ -1,20 +1,46 @@
-const mongoose = require('mongoose'); // Erase if already required
+const mongoose = require("mongoose");
 
 // Declare the Schema of the Mongo model
-var brandSchema = new mongoose.Schema({
-    title:{
-        type:String,
-        required:true,
-        unique:true,
-        index:true,
+const brandSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: [true, "Brand name is required"],
+      unique: true,
+      trim: true,
+      index: true,
     },
-    
 
-},
-{
-timestamps: true,
-}
+    // Brand Logo / Images
+    images: [
+      {
+        public_id: {
+          type: String,
+        },
+        url: {
+          type: String,
+        },
+      },
+    ],
+
+    // Optional: enable/disable brand (useful later)
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+  },
+  {
+    timestamps: true,
+  }
 );
 
-//Export the model
-module.exports = mongoose.model('Brand', brandSchema);
+// Handle duplicate key error nicely
+brandSchema.post("save", function (error, doc, next) {
+  if (error?.code === 11000) {
+    next(new Error("Brand name already exists"));
+  } else {
+    next(error);
+  }
+});
+
+module.exports = mongoose.model("Brand", brandSchema);

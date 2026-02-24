@@ -1,62 +1,118 @@
-const Brand = require('../models/brandModel');
-const asyncHandler = require('express-async-handler');
-const validateMongoDbId = require('../utils/validateMongodbid');
+const Brand = require("../models/brandModel");
+const asyncHandler = require("express-async-handler");
+const validateMongoDbId = require("../utils/validateMongodbid");
 
-
-const createBrand = asyncHandler(async(req, res)=>{
+/**
+ * CREATE BRAND
+ * POST /api/brand
+ */
+const createBrand = asyncHandler(async (req, res) => {
   try {
-    const newBrand = await Brand.create(req.body);
-    res.json(newBrand);
+    const { title, images, isActive } = req.body;
+
+    if (!title || !title.trim()) {
+      res.status(400);
+      throw new Error("Brand name (title) is required");
+    }
+
+    const newBrand = await Brand.create({
+      title: title.trim(),
+      images: Array.isArray(images) ? images : [],
+      isActive: typeof isActive === "boolean" ? isActive : true,
+    });
+
+    res.status(201).json(newBrand);
   } catch (error) {
-    throw new Error (error);
+    // Duplicate key error (unique: true)
+    if (error?.code === 11000) {
+      res.status(409);
+      throw new Error("Brand name already exists");
+    }
+    throw new Error(error);
   }
 });
 
-const updateBrand = asyncHandler(async(req, res)=>{
-  const {id} =  req.params;
+/**
+ * UPDATE BRAND
+ * PUT /api/brand/:id
+ */
+const updateBrand = asyncHandler(async (req, res) => {
+  const { id } = req.params;
   validateMongoDbId(id);
+
   try {
-    const updatedBrand = await Brand.findByIdAndUpdate(id,req.body,{
+    // Ensure title trim if provided
+    if (req.body?.title) req.body.title = req.body.title.trim();
+
+    const updatedBrand = await Brand.findByIdAndUpdate(id, req.body, {
       new: true,
+      runValidators: true, // ✅ important
     });
+
+    if (!updatedBrand) {
+      res.status(404);
+      throw new Error("Brand not found");
+    }
+
     res.json(updatedBrand);
   } catch (error) {
-    throw new Error (error);
+    if (error?.code === 11000) {
+      res.status(409);
+      throw new Error("Brand name already exists");
+    }
+    throw new Error(error);
   }
 });
 
-const deleteBrand = asyncHandler(async(req, res)=>{
-  const {id} =  req.params;
+/**
+ * DELETE BRAND
+ * DELETE /api/brand/:id
+ */
+const deleteBrand = asyncHandler(async (req, res) => {
+  const { id } = req.params;
   validateMongoDbId(id);
-  try {
-    const deletedBrand = await Brand.findByIdAndDelete(id);
-    res.json(deletedBrand);
-  } catch (error) {
-    throw new Error (error);
+
+  const deletedBrand = await Brand.findByIdAndDelete(id);
+
+  if (!deletedBrand) {
+    res.status(404);
+    throw new Error("Brand not found");
   }
+
+  res.json({ message: "Brand deleted successfully", id: deletedBrand._id });
 });
-const getBrand = asyncHandler(async(req, res)=>{
-  const {id} =  req.params;
+
+/**
+ * GET SINGLE BRAND
+ * GET /api/brand/:id
+ */
+const getBrand = asyncHandler(async (req, res) => {
+  const { id } = req.params;
   validateMongoDbId(id);
-  try {
-    const getaBrand = await Brand.findById(id);
-    res.json(getaBrand);
-  } catch (error) {
-    throw new Error (error);
+
+  const brand = await Brand.findById(id);
+
+  if (!brand) {
+    res.status(404);
+    throw new Error("Brand not found");
   }
+
+  res.json(brand);
 });
 
-
-const getallBrand = asyncHandler(async(req, res)=>{
- 
-  try {
-    const getallBrand = await Brand.find();
-    res.json(getallBrand);
-  } catch (error) {
-    throw new Error (error);
-  }
+/**
+ * GET ALL BRANDS
+ * GET /api/brand
+ */
+const getallBrand = asyncHandler(async (req, res) => {
+  const brands = await Brand.find().sort({ createdAt: -1 });
+  res.json(brands);
 });
 
-
-
-module.exports = {createBrand, updateBrand, deleteBrand, getBrand, getallBrand};
+module.exports = {
+  createBrand,
+  updateBrand,
+  deleteBrand,
+  getBrand,
+  getallBrand,
+};
