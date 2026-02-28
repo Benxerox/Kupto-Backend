@@ -257,40 +257,65 @@ const getaProduct = asyncHandler(async (req, res) => {
 });
 
 /* =========================================
-   GET ALL PRODUCTS
+   GET ALL PRODUCTS (FIXED SEARCH + PAGINATION)
 ========================================= */
 const getAllProduct = asyncHandler(async (req, res) => {
   // 1) clone query params
   const queryObj = { ...req.query };
 
-  // 2) remove special params (same as your code)
+  // ✅ Pull search params out so they DO NOT become Mongo filters
+  const searchRaw = (queryObj.search ?? queryObj.searchTerm ?? "").toString().trim();
+  delete queryObj.search;
+  delete queryObj.searchTerm;
+
+  // 2) remove special params
   const excludeFields = ["page", "sort", "limit", "fields"];
   excludeFields.forEach((el) => delete queryObj[el]);
 
   // 3) build filter + support gte/gt/lte/lt
   let queryStr = JSON.stringify(queryObj);
   queryStr = queryStr.replace(/\b(gte|gt|lte|lt)\b/g, (match) => `$${match}`);
-
   const filter = JSON.parse(queryStr);
 
-  // 4) sorting (same behavior as your code)
+  // ✅ Apply text search (edit fields as you like)
+  if (searchRaw) {
+    const rx = new RegExp(searchRaw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    filter.$or = [
+      { title: rx },
+      { description: rx },
+      { brand: rx },
+      // if tags is array of strings, this works:
+      { tags: rx },
+    ];
+  }
+
+  // 4) sorting
   const sortBy = req.query.sort ? req.query.sort.split(",").join(" ") : "-createdAt";
 
-  // 5) field selection (same behavior as your code)
+  // 5) field selection
   const selectFields = req.query.fields ? req.query.fields.split(",").join(" ") : "-__v";
 
-  // 6) pagination (keep your defaults, but safer)
+  // 6) pagination (safe)
   const page = Math.max(1, Number(req.query.page || 1));
   const limit = Math.max(1, Number(req.query.limit || 100));
   const skip = (page - 1) * limit;
 
-  // ✅ IMPORTANT FIX: count documents using the SAME filter (not all products)
+  // ✅ count documents using SAME filter
   const total = await Product.countDocuments(filter);
-  const pages = Math.ceil(total / limit);
+  const pages = total === 0 ? 0 : Math.ceil(total / limit);
 
-  // ✅ IMPORTANT FIX: validate page against FILTERED total
-  if (req.query.page && skip >= total) {
-    return res.status(400).json({ message: "This Page does not exist" });
+  // ✅ FIX: do NOT throw error when total is 0 OR when requesting page 1
+  if (total > 0 && page > pages) {
+    return res.status(200).json({
+      total,
+      page,
+      limit,
+      pages,
+      hasNextPage: false,
+      hasPrevPage: pages > 0,
+      data: [],
+      message: "No results for this page",
+    });
   }
 
   // 7) run query
@@ -300,14 +325,14 @@ const getAllProduct = asyncHandler(async (req, res) => {
     .skip(skip)
     .limit(limit);
 
-  // 8) return data + meta (so frontend/admin can load ALL products reliably)
+  // 8) return
   return res.json({
     total,
     page,
     limit,
     pages,
-    hasNextPage: page < pages,
-    hasPrevPage: page > 1,
+    hasNextPage: pages > 0 ? page < pages : false,
+    hasPrevPage: pages > 0 ? page > 1 : false,
     data,
   });
 });
