@@ -257,16 +257,24 @@ const getaProduct = asyncHandler(async (req, res) => {
 });
 
 /* =========================================
-   GET ALL PRODUCTS (FIXED SEARCH + PAGINATION)
+   GET ALL PRODUCTS (UPDATED: SEARCH + PAGINATION)
+   ✅ Supports: searchTerm, search, q
+   ✅ Prevents: q/search/searchTerm from becoming Mongo filters
+   ✅ Safe pagination when total = 0
 ========================================= */
 const getAllProduct = asyncHandler(async (req, res) => {
   // 1) clone query params
   const queryObj = { ...req.query };
 
   // ✅ Pull search params out so they DO NOT become Mongo filters
-  const searchRaw = (queryObj.search ?? queryObj.searchTerm ?? "").toString().trim();
+  const searchRaw = (queryObj.search ?? queryObj.searchTerm ?? queryObj.q ?? "")
+    .toString()
+    .trim();
+
+  // ✅ Remove search keys so they don't end up inside Mongo filter
   delete queryObj.search;
   delete queryObj.searchTerm;
+  delete queryObj.q;
 
   // 2) remove special params
   const excludeFields = ["page", "sort", "limit", "fields"];
@@ -278,15 +286,13 @@ const getAllProduct = asyncHandler(async (req, res) => {
   const filter = JSON.parse(queryStr);
 
   // ✅ Apply text search (edit fields as you like)
+  // Escapes special regex chars to avoid breaking searches (eg: "+", ".", "(", ")")
   if (searchRaw) {
-    const rx = new RegExp(searchRaw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-    filter.$or = [
-      { title: rx },
-      { description: rx },
-      { brand: rx },
-      // if tags is array of strings, this works:
-      { tags: rx },
-    ];
+    const escaped = searchRaw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const rx = new RegExp(escaped, "i");
+
+    // If tags is an array of strings, { tags: rx } works
+    filter.$or = [{ title: rx }, { description: rx }, { brand: rx }, { tags: rx }];
   }
 
   // 4) sorting
@@ -304,7 +310,8 @@ const getAllProduct = asyncHandler(async (req, res) => {
   const total = await Product.countDocuments(filter);
   const pages = total === 0 ? 0 : Math.ceil(total / limit);
 
-  // ✅ FIX: do NOT throw error when total is 0 OR when requesting page 1
+  // ✅ If page requested beyond range, return empty list instead of error
+  // (Prevents "This page does not exist" even when filters/search reduce results)
   if (total > 0 && page > pages) {
     return res.status(200).json({
       total,
