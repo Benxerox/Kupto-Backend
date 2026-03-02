@@ -67,7 +67,7 @@ const normalizeMinQty = (v) => {
 const isMongoDupError = (err) =>
   err && (err.code === 11000 || err?.name === "MongoServerError");
 
-// ✅ Cookie options
+// ✅ Cookie options (refresh token cookie)
 const getCookieOptions = () => {
   const isProd = process.env.NODE_ENV === "production";
   const isCrossSite =
@@ -77,7 +77,8 @@ const getCookieOptions = () => {
   const base = {
     httpOnly: true,
     path: "/",
-    maxAge: 72 * 60 * 60 * 1000,
+    // ✅ Match refresh token lifetime (your refreshToken.js should be 30d)
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     ...(cookieDomain ? { domain: cookieDomain } : {}),
   };
 
@@ -367,7 +368,7 @@ const loginAdmin = asyncHandler(async (req, res) => {
 });
 
 // ============================
-// ✅ HANDLE REFRESH TOKEN
+// ✅ HANDLE REFRESH TOKEN (rotates refresh token too)
 // ============================
 const handleRefreshToken = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
@@ -386,12 +387,22 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
 
   try {
     const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+
     if (String(user._id) !== String(decoded.id)) {
       res.status(401);
       throw new Error("There is something wrong with the refresh token");
     }
 
+    // ✅ rotate refresh token (keeps users logged in safely)
+    const newRefreshToken = generateRefreshToken(user._id);
+    user.refreshToken = newRefreshToken;
+    await user.save();
+
+    res.cookie("refreshToken", newRefreshToken, getCookieOptions());
+
+    // ✅ issue new access token
     const accessToken = generateToken(user._id);
+
     res.json({ accessToken });
   } catch (err) {
     res.status(401);
@@ -614,7 +625,9 @@ const userCart = asyncHandler(async (req, res) => {
 
   // ✅ FIX: sanitize discount min qty (prevents saving 0 which violates min:1)
   const cleanPrintDiscountMinQty =
-    printDiscountMinQty !== undefined ? normalizeMinQty(printDiscountMinQty) : undefined;
+    printDiscountMinQty !== undefined
+      ? normalizeMinQty(printDiscountMinQty)
+      : undefined;
 
   const existing = await Cart.findOne({
     userId: _id,

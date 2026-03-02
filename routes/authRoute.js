@@ -70,8 +70,8 @@ router.post("/register", registerUserCtrl);
 router.post("/login", loginUserCtrl);
 router.post("/admin-login", loginAdmin);
 
-router.get("/refresh", handleRefreshToken);
-router.get("/logout", logout);
+router.post("/refresh", handleRefreshToken);
+router.post("/logout", logout);
 
 // ✅ Password reset by code (email)
 router.post("/forgot-password-code", forgotPasswordCode);
