@@ -40,6 +40,7 @@ dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 // Connect to the database
 dbConnect();
+app.set("trust proxy", 1);
 
 /* =========================
    ✅ CORS (FIXED)
@@ -73,7 +74,8 @@ const corsOptions = {
 
     if (allowedOrigins.includes(origin)) return callback(null, true);
 
-    return callback(new Error("Not allowed by CORS"));
+    console.log("❌ CORS blocked origin:", origin);
+    return callback(null, false); // ✅ block without crashing
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -82,7 +84,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 app.options("*", cors(corsOptions));
-app.set("trust proxy", 1);
+
 
 
 /* =========================
