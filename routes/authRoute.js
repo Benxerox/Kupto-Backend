@@ -56,6 +56,8 @@ const {
   // OTP
   sendVerificationCodeCtrl,
   verifyCodeCtrl,
+  cancelMyOrder,
+  cancelOrderAdmin,
 } = require("../controller/userCtrl");
 
 const { authMiddleware, isAdmin } = require("../middlewares/authMiddleware");
@@ -72,6 +74,12 @@ router.post("/admin-login", loginAdmin);
 
 router.post("/refresh", handleRefreshToken);
 router.post("/logout", logout);
+
+
+// user cancels own order
+router.put("/orders/:id/cancel", authMiddleware, cancelMyOrder);
+
+router.put("/admin/orders/:id/cancel", authMiddleware, isAdmin, cancelOrderAdmin);
 
 // ✅ Password reset by code (email)
 router.post("/forgot-password-code", forgotPasswordCode);

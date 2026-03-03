@@ -32,35 +32,25 @@ const normalizeMobile = (raw = "") => {
   let s = String(raw || "").trim().replace(/[^\d+]/g, "");
   if (!s) return "";
 
-  // 00... -> +...
   if (s.startsWith("00")) s = "+" + s.slice(2);
-
-  // +256... already Uganda
   if (s.startsWith("+256")) return s;
-
-  // 2567... -> +2567...
   if (s.startsWith("256")) return "+" + s;
 
-  // 07... -> +2567...
   if (s.startsWith("0")) {
     const rest = s.replace(/^0+/, "");
     return `+256${rest}`;
   }
 
-  // 7xxxxxxx typed without 0/256
   if (/^\d+$/.test(s) && s.length >= 7 && s.length <= 9) return `+256${s}`;
-
-  // If it already has + (non-Ug), keep it
   if (s.startsWith("+")) return s;
 
-  // fallback
   return "";
 };
 
 // ✅ min qty sanitizer (prevents Mongoose "min: 1" error)
 const normalizeMinQty = (v) => {
   const n = Number(v);
-  if (!Number.isFinite(n) || n < 1) return null; // convert 0/undefined/NaN -> null
+  if (!Number.isFinite(n) || n < 1) return null;
   return Math.floor(n);
 };
 
@@ -77,24 +67,15 @@ const getCookieOptions = () => {
   const base = {
     httpOnly: true,
     path: "/",
-    // ✅ Match refresh token lifetime (your refreshToken.js should be 30d)
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     ...(cookieDomain ? { domain: cookieDomain } : {}),
   };
 
   if (isProd && isCrossSite) {
-    return {
-      ...base,
-      secure: true,
-      sameSite: "none",
-    };
+    return { ...base, secure: true, sameSite: "none" };
   }
 
-  return {
-    ...base,
-    secure: isProd,
-    sameSite: "lax",
-  };
+  return { ...base, secure: isProd, sameSite: "lax" };
 };
 
 // helper to avoid leaking auth details
@@ -105,6 +86,24 @@ const invalidCreds = (res) => {
 
 // ✅ ensure ObjectId string from populated object or raw id
 const toId = (v) => (v && typeof v === "object" ? v._id : v);
+
+// ✅ order status rules (keep in sync with your Order schema enum)
+const ORDER_STATUSES = ["Ordered", "Shipped", "Delivered", "Cancelled"];
+
+// ✅ parse/validate number helpers
+const toMoney = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+const requirePositiveMoney = (v, fieldName = "amount") => {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) {
+    const err = new Error(`${fieldName} must be a positive number`);
+    err.statusCode = 400;
+    throw err;
+  }
+  return n;
+};
 
 // ============================
 // ✅ REGISTER
@@ -393,14 +392,12 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
       throw new Error("There is something wrong with the refresh token");
     }
 
-    // ✅ rotate refresh token (keeps users logged in safely)
     const newRefreshToken = generateRefreshToken(user._id);
     user.refreshToken = newRefreshToken;
     await user.save();
 
     res.cookie("refreshToken", newRefreshToken, getCookieOptions());
 
-    // ✅ issue new access token
     const accessToken = generateToken(user._id);
 
     res.json({ accessToken });
@@ -513,9 +510,7 @@ const deleteaUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
 
-  const user = await User.findByIdAndDelete(id).select(
-    "-password -refreshToken"
-  );
+  const user = await User.findByIdAndDelete(id).select("-password -refreshToken");
   res.json({ deleteaUser: user });
 });
 
@@ -623,7 +618,6 @@ const userCart = asyncHandler(async (req, res) => {
 
   const qty = Math.max(1, Number(quantity || 1));
 
-  // ✅ FIX: sanitize discount min qty (prevents saving 0 which violates min:1)
   const cleanPrintDiscountMinQty =
     printDiscountMinQty !== undefined
       ? normalizeMinQty(printDiscountMinQty)
@@ -666,7 +660,6 @@ const userCart = asyncHandler(async (req, res) => {
         ? Boolean(preparePriceApplied)
         : Boolean(existing.preparePriceApplied);
 
-    // ✅ FIX: only set if field is present in request; value becomes null or >=1
     if (cleanPrintDiscountMinQty !== undefined) {
       existing.printDiscountMinQty = cleanPrintDiscountMinQty;
     }
@@ -700,7 +693,6 @@ const userCart = asyncHandler(async (req, res) => {
     preparePriceOnce: Number(preparePriceOnce || 0),
     preparePriceApplied: Boolean(preparePriceApplied || false),
 
-    // ✅ FIX: normalize here too (0 -> null)
     printDiscountMinQty: normalizeMinQty(printDiscountMinQty),
   });
 
@@ -724,6 +716,7 @@ const removeProductFromCart = asyncHandler(async (req, res) => {
   const { cartItemId } = req.params;
 
   validateMongoDbId(_id);
+  validateMongoDbId(cartItemId);
 
   const deleted = await Cart.deleteOne({ userId: _id, _id: cartItemId });
   res.json(deleted);
@@ -734,6 +727,7 @@ const updateProductQuantityFromCart = asyncHandler(async (req, res) => {
   const { cartItemId, newQuantity } = req.params;
 
   validateMongoDbId(_id);
+  validateMongoDbId(cartItemId);
 
   const cartItem = await Cart.findOne({ userId: _id, _id: cartItemId });
   if (!cartItem) {
@@ -994,6 +988,12 @@ const generateReceiptHtml = (
 
 // ============================
 // ✅ CREATE ORDER (AUTH ONLY - NO GUEST)
+// ✅ Improvements added:
+//  - validate ObjectIds
+//  - validate unitPrice > 0
+//  - validate status/payment method
+//  - safer totals: recompute itemsTotal from orderItems
+//    (still keeps your shipping/setup totals from client, but item totals are protected)
 // ============================
 const createOrder = asyncHandler(async (req, res) => {
   const {
@@ -1008,7 +1008,6 @@ const createOrder = asyncHandler(async (req, res) => {
     note,
   } = req.body;
 
-  // ✅ MUST be logged in
   const userId = req.user?._id;
   if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
@@ -1059,8 +1058,8 @@ const createOrder = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Payment method is required" });
   }
 
-  const allowed = ["cashOnDelivery", "mobileMoney", "card", "paypal"];
-  if (!allowed.includes(paymentMethod)) {
+  const allowedPayments = ["cashOnDelivery", "mobileMoney", "card", "paypal"];
+  if (!allowedPayments.includes(paymentMethod)) {
     return res.status(400).json({ message: "Invalid payment method" });
   }
 
@@ -1103,38 +1102,81 @@ const createOrder = asyncHandler(async (req, res) => {
     safePaymentInfo.paypalPayerID = paypalPayerID ? String(paypalPayerID) : null;
   }
 
-  // map items: ensure ids + required unitPrice
-  const safeOrderItems = orderItems.map((it) => ({
-    product: toId(it.product),
-    color: toId(it.color) || null,
-    size: toId(it.size) || null,
-    uploadedFiles: Array.isArray(it.uploadedFiles) ? it.uploadedFiles : [],
-    quantity: Math.max(1, Number(it.quantity || 1)),
-    unitPrice: Number(it.unitPrice || 0),
-    printUnitPrice: Number(it.printUnitPrice || 0),
-    printPricingTitle: it.printPricingTitle || null,
-    printSide: it.printSide || "",
-    instruction: it.instruction ?? null,
-  }));
+  // Validate and map items (and compute items total securely)
+  let computedItemsTotal = 0;
+
+  const safeOrderItems = orderItems.map((it, idx) => {
+    const prodId = toId(it.product);
+    if (!prodId) {
+      const e = new Error(`orderItems[${idx}].product is required`);
+      e.statusCode = 400;
+      throw e;
+    }
+    validateMongoDbId(prodId);
+
+    const qty = Math.max(1, Number(it.quantity || 1));
+
+    const unitPrice = requirePositiveMoney(it.unitPrice, `orderItems[${idx}].unitPrice`);
+    computedItemsTotal += unitPrice * qty;
+
+    const colorId = toId(it.color);
+    const sizeId = toId(it.size);
+
+    if (colorId) validateMongoDbId(colorId);
+    if (sizeId) validateMongoDbId(sizeId);
+
+    return {
+      product: prodId,
+      color: colorId || null,
+      size: sizeId || null,
+      uploadedFiles: Array.isArray(it.uploadedFiles) ? it.uploadedFiles : [],
+      quantity: qty,
+      unitPrice,
+      printUnitPrice: toMoney(it.printUnitPrice || 0),
+      printPricingTitle: it.printPricingTitle || null,
+      printSide: it.printSide || "",
+      instruction: it.instruction ?? null,
+    };
+  });
+
+  // you can choose to trust client shipping/setup or also validate them:
+  const safeShippingPrice = Math.max(0, toMoney(shippingPrice));
+  const safeSetupFeeTotal = Math.max(0, toMoney(setupFeeTotal));
+
+  const computedTotalPrice = computedItemsTotal + safeShippingPrice + safeSetupFeeTotal;
+
+  // if you want, you can enforce client totals match server totals:
+  // (this is optional, but recommended)
+  if (itemsTotal != null && Math.abs(toMoney(itemsTotal) - computedItemsTotal) > 0.01) {
+    return res.status(400).json({ message: "itemsTotal mismatch" });
+  }
+  if (totalPrice != null && Math.abs(toMoney(totalPrice) - computedTotalPrice) > 0.01) {
+    return res.status(400).json({ message: "totalPrice mismatch" });
+  }
+
+  const safeTotalPriceAfterDiscount =
+    totalPriceAfterDiscount != null
+      ? Math.max(0, toMoney(totalPriceAfterDiscount))
+      : computedTotalPrice;
 
   const order = await Order.create({
     user: userId,
-    guestInfo: null, // ✅ no guest
+    guestInfo: null,
     shippingInfo: safeShipping,
     orderItems: safeOrderItems,
 
-    itemsTotal: Number(itemsTotal || 0),
-    shippingPrice: Number(shippingPrice || 0),
-    setupFeeTotal: Number(setupFeeTotal || 0),
+    itemsTotal: computedItemsTotal,
+    shippingPrice: safeShippingPrice,
+    setupFeeTotal: safeSetupFeeTotal,
 
-    totalPrice: Number(totalPrice || 0),
-    totalPriceAfterDiscount: Number(totalPriceAfterDiscount || totalPrice || 0),
+    totalPrice: computedTotalPrice,
+    totalPriceAfterDiscount: safeTotalPriceAfterDiscount,
 
     paymentInfo: safePaymentInfo,
     note: note ?? null,
   });
 
-  // ✅ send receipt to ACCOUNT email only (no guest fallback)
+  // send receipt to ACCOUNT email only
   const receiptTo = (await User.findById(userId).select("email"))?.email || null;
 
   if (receiptTo) {
@@ -1148,7 +1190,7 @@ const createOrder = asyncHandler(async (req, res) => {
         fullOrder || order,
         safeShipping,
         (fullOrder || order)?.orderItems || safeOrderItems,
-        Number(totalPrice || 0),
+        computedTotalPrice,
         safePaymentInfo
       );
 
@@ -1186,8 +1228,10 @@ const getAllOrders = asyncHandler(async (req, res) => {
   res.json({ orders });
 });
 
+// ✅ FIX: validateMongoDbId(id)
 const getSingleOrders = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  validateMongoDbId(id);
 
   const order = await Order.findOne({ _id: id })
     .populate("orderItems.product")
@@ -1198,9 +1242,21 @@ const getSingleOrders = asyncHandler(async (req, res) => {
   res.json({ order });
 });
 
+// ✅ FIX: validateMongoDbId(id) + allowed status + use save() (no double query)
+// ✅ Also prevents changing Delivered -> other statuses, and prevents un-cancelling
 const updateOrder = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
+
+  validateMongoDbId(id);
+
+  const nextStatus = String(status || "").trim();
+  if (!nextStatus) {
+    return res.status(400).json({ message: "status is required" });
+  }
+  if (!ORDER_STATUSES.includes(nextStatus)) {
+    return res.status(400).json({ message: "Invalid order status" });
+  }
 
   const order = await Order.findById(id);
   if (!order) {
@@ -1208,10 +1264,31 @@ const updateOrder = asyncHandler(async (req, res) => {
     throw new Error("Order not found");
   }
 
-  await Order.updateOne({ _id: id }, { $set: { orderStatus: status } });
-  const updatedOrder = await Order.findById(id);
+  const current = String(order.orderStatus || "Ordered");
 
-  res.json({ order: updatedOrder });
+  // policy: once Delivered, cannot change
+  if (current === "Delivered") {
+    return res.status(400).json({ message: "Delivered orders cannot be updated" });
+  }
+
+  // policy: if already cancelled, do not allow moving out of Cancelled
+  const isCancelled =
+    Boolean(order.isCancelled) || String(order.orderStatus || "").toLowerCase() === "cancelled";
+  if (isCancelled && nextStatus !== "Cancelled") {
+    return res.status(400).json({ message: "Cancelled orders cannot be re-opened" });
+  }
+
+  // keep cancel flags consistent
+  if (nextStatus === "Cancelled") {
+    order.isCancelled = true;
+    order.cancelledAt = order.cancelledAt || new Date();
+    order.cancelledBy = order.cancelledBy || "admin";
+  }
+
+  order.orderStatus = nextStatus;
+  await order.save();
+
+  res.json({ order });
 });
 
 // ============================
@@ -1278,8 +1355,7 @@ const getYearlyTotalOrders = asyncHandler(async (req, res) => {
 // ✅ OTP / Verification Code
 // ============================
 const OTP_STORE = new Map();
-const generateOtp = () =>
-  Math.floor(100000 + Math.random() * 900000).toString();
+const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
   const { identity, type } = req.body;
@@ -1395,7 +1471,6 @@ const forgotPasswordCode = asyncHandler(async (req, res) => {
   }
 
   const user = await User.findOne({ email });
-
   if (!user) return okGenericForgotResponse(res);
 
   const code = generateResetCode();
@@ -1411,7 +1486,6 @@ const forgotPasswordCode = asyncHandler(async (req, res) => {
   };
 
   await sendEmail(data);
-
   return okGenericForgotResponse(res);
 });
 
@@ -1495,6 +1569,102 @@ const resetPasswordWithCode = asyncHandler(async (req, res) => {
 });
 
 // ============================
+// ✅ CANCEL MY ORDER (AUTH)
+// ============================
+const cancelMyOrder = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+
+  const userId = req.user?._id;
+  if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+  validateMongoDbId(id);
+
+  const order = await Order.findById(id);
+  if (!order) {
+    res.status(404);
+    throw new Error("Order not found");
+  }
+
+  if (!order.user || String(order.user) !== String(userId)) {
+    res.status(403);
+    throw new Error("Not allowed to cancel this order");
+  }
+
+  if (order.isCancelled || String(order.orderStatus).toLowerCase() === "cancelled") {
+    return res.status(200).json({
+      success: true,
+      message: "Order already cancelled",
+      order,
+    });
+  }
+
+  const status = String(order.orderStatus || "Ordered").toLowerCase();
+  if (status !== "ordered") {
+    res.status(400);
+    throw new Error("This order can no longer be cancelled");
+  }
+
+  order.isCancelled = true;
+  order.cancelledAt = new Date();
+  order.cancelReason = reason ? String(reason).trim().slice(0, 300) : null;
+  order.cancelledBy = "user";
+  order.orderStatus = "Cancelled";
+
+  await order.save();
+
+  return res.status(200).json({
+    success: true,
+    message: "Order cancelled successfully",
+    order,
+  });
+});
+
+// ============================
+// ✅ CANCEL ORDER (ADMIN)
+// ============================
+const cancelOrderAdmin = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+
+  validateMongoDbId(id);
+
+  const order = await Order.findById(id);
+  if (!order) {
+    res.status(404);
+    throw new Error("Order not found");
+  }
+
+  if (order.isCancelled || String(order.orderStatus).toLowerCase() === "cancelled") {
+    return res.status(200).json({
+      success: true,
+      message: "Order already cancelled",
+      order,
+    });
+  }
+
+  const status = String(order.orderStatus || "Ordered").toLowerCase();
+  if (status === "delivered") {
+    res.status(400);
+    throw new Error("Delivered orders cannot be cancelled");
+  }
+
+  order.isCancelled = true;
+  order.cancelledAt = new Date();
+  order.cancelReason = reason ? String(reason).trim().slice(0, 300) : null;
+  order.cancelledBy = "admin";
+  order.orderStatus = "Cancelled";
+
+  await order.save();
+
+  return res.status(200).json({
+    success: true,
+    message: "Order cancelled",
+    order,
+  });
+});
+
+// ============================
 // ✅ EXPORTS (FULL)
 // ============================
 module.exports = {
@@ -1548,4 +1718,8 @@ module.exports = {
   // otp
   sendVerificationCodeCtrl,
   verifyCodeCtrl,
+
+  // cancellation
+  cancelMyOrder,
+  cancelOrderAdmin,
 };
