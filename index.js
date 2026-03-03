@@ -66,23 +66,23 @@ const allowedOrigins = [
   "https://localhost",
 ];
 
+
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
 
     if (allowedOrigins.includes(origin)) return callback(null, true);
 
-    console.log("❌ CORS blocked origin:", origin);
-    return callback(null, false); // block without crashing
+    return callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 };
-
-
 app.use(cors(corsOptions));
+
 app.options("*", cors(corsOptions));
+app.set("trust proxy", 1);
 
 
 /* =========================
