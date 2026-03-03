@@ -22,12 +22,9 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 // ============================
 // ✅ Helpers
 // ============================
-
-// Email: trim + lower
 const normalizeEmail = (v) => String(v || "").trim().toLowerCase();
 
-// ✅ Phone: normalize Uganda numbers to E.164 (+256XXXXXXXXX) consistently
-// Accepts: "070...", "7...", "2567...", "+2567...", "00 2567..."
+// ✅ Uganda E.164 normalization (+2567xxxxxxxx)
 const normalizeMobile = (raw = "") => {
   let s = String(raw || "").trim().replace(/[^\d+]/g, "");
   if (!s) return "";
@@ -47,7 +44,6 @@ const normalizeMobile = (raw = "") => {
   return "";
 };
 
-// ✅ min qty sanitizer (prevents Mongoose "min: 1" error)
 const normalizeMinQty = (v) => {
   const n = Number(v);
   if (!Number.isFinite(n) || n < 1) return null;
@@ -57,40 +53,43 @@ const normalizeMinQty = (v) => {
 const isMongoDupError = (err) =>
   err && (err.code === 11000 || err?.name === "MongoServerError");
 
-// ✅ Cookie options (refresh token cookie)
 const getCookieOptions = () => {
   const isProd = process.env.NODE_ENV === "production";
   const isCrossSite =
     String(process.env.CROSS_SITE_COOKIES || "").toLowerCase() === "true";
-  const cookieDomain = process.env.COOKIE_DOMAIN; // e.g. ".kupto.co"
+  const cookieDomain = process.env.COOKIE_DOMAIN; // e.g. ".kupto2020.com"
 
   const base = {
     httpOnly: true,
     path: "/",
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    maxAge: 30 * 24 * 60 * 60 * 1000,
     ...(cookieDomain ? { domain: cookieDomain } : {}),
   };
 
-  if (isProd && isCrossSite) {
-    return { ...base, secure: true, sameSite: "none" };
-  }
-
+  if (isProd && isCrossSite) return { ...base, secure: true, sameSite: "none" };
   return { ...base, secure: isProd, sameSite: "lax" };
 };
 
-// helper to avoid leaking auth details
+const getClearCookieOptions = () => {
+  const opts = getCookieOptions();
+  return {
+    httpOnly: opts.httpOnly,
+    path: opts.path,
+    secure: opts.secure,
+    sameSite: opts.sameSite,
+    ...(opts.domain ? { domain: opts.domain } : {}),
+  };
+};
+
 const invalidCreds = (res) => {
   res.status(401);
   throw new Error("Invalid Credentials");
 };
 
-// ✅ ensure ObjectId string from populated object or raw id
 const toId = (v) => (v && typeof v === "object" ? v._id : v);
 
-// ✅ order status rules (keep in sync with your Order schema enum)
 const ORDER_STATUSES = ["Ordered", "Shipped", "Delivered", "Cancelled"];
 
-// ✅ parse/validate number helpers
 const toMoney = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -168,7 +167,7 @@ const registerUserCtrl = asyncHandler(async (req, res) => {
 });
 
 // ============================
-// ✅ LOGIN (supports email OR phone)
+// ✅ LOGIN (email OR phone)
 // ============================
 const loginUserCtrl = asyncHandler(async (req, res) => {
   const { identity, type, email, mobile, password } = req.body;
@@ -191,6 +190,11 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
 
   const user = await User.findOne(query).select("+password");
   if (!user) return invalidCreds(res);
+
+  if (user.isBlocked) {
+    res.status(403);
+    throw new Error("Account is blocked");
+  }
 
   const ok = await user.isPasswordMatched(password);
   if (!ok) return invalidCreds(res);
@@ -253,14 +257,13 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
       success: true,
       profileRequired: true,
       message: "Complete profile to finish signup",
-      googleProfile: {
-        googleId,
-        email: cleanEmail,
-        firstname,
-        lastname,
-        picture,
-      },
+      googleProfile: { googleId, email: cleanEmail, firstname, lastname, picture },
     });
+  }
+
+  if (user.isBlocked) {
+    res.status(403);
+    throw new Error("Account is blocked");
   }
 
   const refreshToken = generateRefreshToken(user._id);
@@ -282,15 +285,13 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
 });
 
 // ============================
-// ✅ IDENTIFY USER (checks if email/phone exists)
+// ✅ IDENTIFY USER
 // ============================
 const identifyUserCtrl = asyncHandler(async (req, res) => {
   const { identity, type } = req.body;
 
   if (!identity) {
-    return res
-      .status(400)
-      .json({ exists: false, message: "identity is required" });
+    return res.status(400).json({ exists: false, message: "identity is required" });
   }
 
   const v = String(identity).trim();
@@ -346,6 +347,11 @@ const loginAdmin = asyncHandler(async (req, res) => {
     throw new Error("Not Authorized");
   }
 
+  if (findAdmin.isBlocked) {
+    res.status(403);
+    throw new Error("Account is blocked");
+  }
+
   const passwordMatch = await findAdmin.isPasswordMatched(password);
   if (!passwordMatch) return invalidCreds(res);
 
@@ -367,7 +373,8 @@ const loginAdmin = asyncHandler(async (req, res) => {
 });
 
 // ============================
-// ✅ HANDLE REFRESH TOKEN (rotates refresh token too)
+// ✅ HANDLE REFRESH TOKEN (rotates refresh token)
+// ✅ IMPORTANT: if you DON'T have JWT_REFRESH_SECRET, then verify with JWT_SECRET
 // ============================
 const handleRefreshToken = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
@@ -385,7 +392,9 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
   }
 
   try {
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    // If you use a separate secret for refresh, set JWT_REFRESH_SECRET and use it.
+    const refreshSecret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
+    const decoded = jwt.verify(refreshToken, refreshSecret);
 
     if (String(user._id) !== String(decoded.id)) {
       res.status(401);
@@ -399,8 +408,7 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
     res.cookie("refreshToken", newRefreshToken, getCookieOptions());
 
     const accessToken = generateToken(user._id);
-
-    res.json({ accessToken });
+    res.json({ token: accessToken, accessToken });
   } catch (err) {
     res.status(401);
     throw new Error("Invalid or expired refresh token");
@@ -412,20 +420,18 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
 // ============================
 const logout = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
-  if (!cookie?.refreshToken) {
-    return res.sendStatus(204);
-  }
+  if (!cookie?.refreshToken) return res.sendStatus(204);
 
   const refreshToken = cookie.refreshToken;
   const user = await User.findOne({ refreshToken });
 
   if (!user) {
-    res.clearCookie("refreshToken", getCookieOptions());
+    res.clearCookie("refreshToken", getClearCookieOptions());
     return res.sendStatus(204);
   }
 
   await User.findOneAndUpdate({ refreshToken }, { refreshToken: "" });
-  res.clearCookie("refreshToken", getCookieOptions());
+  res.clearCookie("refreshToken", getClearCookieOptions());
 
   res.sendStatus(204);
 });
@@ -450,9 +456,7 @@ const updatedUser = asyncHandler(async (req, res) => {
       throw new Error("mobile is not valid");
     }
 
-    Object.keys(payload).forEach(
-      (k) => payload[k] === undefined && delete payload[k]
-    );
+    Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
 
     const user = await User.findByIdAndUpdate(_id, payload, { new: true }).select(
       "-password -refreshToken"
@@ -521,11 +525,7 @@ const blockUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
 
-  const user = await User.findByIdAndUpdate(
-    id,
-    { isBlocked: true },
-    { new: true }
-  );
+  const user = await User.findByIdAndUpdate(id, { isBlocked: true }, { new: true });
   res.json(user);
 });
 
@@ -554,11 +554,7 @@ const updatePassword = asyncHandler(async (req, res) => {
   if (password) {
     user.password = password;
     const updatedPassword = await user.save();
-    res.json({
-      success: true,
-      message: "Password updated",
-      id: updatedPassword._id,
-    });
+    res.json({ success: true, message: "Password updated", id: updatedPassword._id });
   } else {
     res.json({ success: true, message: "No password provided" });
   }
@@ -590,7 +586,7 @@ const removeProductFromWishlist = asyncHandler(async (req, res) => {
 });
 
 // ============================
-// ✅ CART (DB cartModel)
+// ✅ CART
 // ============================
 const userCart = asyncHandler(async (req, res) => {
   const {
@@ -601,7 +597,6 @@ const userCart = asyncHandler(async (req, res) => {
     price,
     uploadedFiles,
     instruction,
-
     variantImage,
     printSide,
     printUnitPrice,
@@ -619,9 +614,7 @@ const userCart = asyncHandler(async (req, res) => {
   const qty = Math.max(1, Number(quantity || 1));
 
   const cleanPrintDiscountMinQty =
-    printDiscountMinQty !== undefined
-      ? normalizeMinQty(printDiscountMinQty)
-      : undefined;
+    printDiscountMinQty !== undefined ? normalizeMinQty(printDiscountMinQty) : undefined;
 
   const existing = await Cart.findOne({
     userId: _id,
@@ -642,18 +635,13 @@ const userCart = asyncHandler(async (req, res) => {
 
     existing.printSide = printSide ?? existing.printSide ?? "";
     existing.printUnitPrice =
-      printUnitPrice != null
-        ? Number(printUnitPrice)
-        : Number(existing.printUnitPrice || 0);
+      printUnitPrice != null ? Number(printUnitPrice) : Number(existing.printUnitPrice || 0);
 
     existing.printKey = printKey ?? existing.printKey ?? "";
-    existing.printPricingTitle =
-      printPricingTitle ?? existing.printPricingTitle ?? "";
+    existing.printPricingTitle = printPricingTitle ?? existing.printPricingTitle ?? "";
 
     existing.preparePriceOnce =
-      preparePriceOnce != null
-        ? Number(preparePriceOnce)
-        : Number(existing.preparePriceOnce || 0);
+      preparePriceOnce != null ? Number(preparePriceOnce) : Number(existing.preparePriceOnce || 0);
 
     existing.preparePriceApplied =
       preparePriceApplied != null
@@ -665,10 +653,7 @@ const userCart = asyncHandler(async (req, res) => {
     }
 
     if (Array.isArray(uploadedFiles) && uploadedFiles.length) {
-      existing.uploadedFiles = [
-        ...(existing.uploadedFiles || []),
-        ...uploadedFiles,
-      ];
+      existing.uploadedFiles = [...(existing.uploadedFiles || []), ...uploadedFiles];
     }
 
     await existing.save();
@@ -752,13 +737,7 @@ const emptyCart = asyncHandler(async (req, res) => {
 // ============================
 // ✅ RECEIPT HTML
 // ============================
-const generateReceiptHtml = (
-  order,
-  shippingInfo = {},
-  orderItems = [],
-  totalPrice = 0,
-  paymentInfo = {}
-) => {
+const generateReceiptHtml = (order, shippingInfo = {}, orderItems = [], totalPrice = 0, paymentInfo = {}) => {
   const escapeHtml = (v) =>
     String(v ?? "")
       .replace(/&/g, "&amp;")
@@ -815,26 +794,16 @@ const generateReceiptHtml = (
   const paymentMethod = escapeHtml(paymentInfo?.paymentMethod || "Not specified");
   const payStatus = escapeHtml(paymentInfo?.status || "Pending");
 
-  const paypalOrderID = paymentInfo?.paypalOrderID
-    ? escapeHtml(paymentInfo.paypalOrderID)
-    : "";
-
-  const paypalCaptureID = paymentInfo?.paypalCaptureID
-    ? escapeHtml(paymentInfo.paypalCaptureID)
-    : "";
-
-  const paypalPayerID = paymentInfo?.paypalPayerID
-    ? escapeHtml(paymentInfo.paypalPayerID)
-    : "";
+  const paypalOrderID = paymentInfo?.paypalOrderID ? escapeHtml(paymentInfo.paypalOrderID) : "";
+  const paypalCaptureID = paymentInfo?.paypalCaptureID ? escapeHtml(paymentInfo.paypalCaptureID) : "";
+  const paypalPayerID = paymentInfo?.paypalPayerID ? escapeHtml(paymentInfo.paypalPayerID) : "";
 
   const itemsHtml = (Array.isArray(orderItems) ? orderItems : [])
     .map((item) => {
       const prod = item?.product;
 
       const title = escapeHtml(getProductTitle(prod));
-      const desc = escapeHtml(
-        getProductDescription(prod) || "No description available"
-      );
+      const desc = escapeHtml(getProductDescription(prod) || "No description available");
       const imgUrl = getProductImageUrl(prod);
 
       const qty = escapeHtml(item?.quantity ?? 1);
@@ -844,9 +813,7 @@ const generateReceiptHtml = (
       const colorLabel = escapeHtml(getVariantLabel(item?.color) || "Not specified");
       const instruction = escapeHtml(item?.instruction || "None");
 
-      const uploadedFiles = Array.isArray(item?.uploadedFiles)
-        ? item.uploadedFiles
-        : [];
+      const uploadedFiles = Array.isArray(item?.uploadedFiles) ? item.uploadedFiles : [];
 
       const filesHtml = uploadedFiles.length
         ? `<div style="margin-top:8px;">
@@ -858,17 +825,11 @@ const generateReceiptHtml = (
                      f?.fileName ||
                        f?.original_filename ||
                        f?.originalFilename ||
-                       (f?.public_id
-                         ? String(f.public_id).split("/").pop()
-                         : "file")
+                       (f?.public_id ? String(f.public_id).split("/").pop() : "file")
                    );
                    const url = f?.url ? escapeHtml(f.url) : "";
                    return `<li style="margin:4px 0;">
-                             ${
-                               url
-                                 ? `<a href="${url}" target="_blank" rel="noreferrer">${name}</a>`
-                                 : name
-                             }
+                             ${url ? `<a href="${url}" target="_blank" rel="noreferrer">${name}</a>` : name}
                            </li>`;
                  })
                  .join("")}
@@ -882,9 +843,7 @@ const generateReceiptHtml = (
             <div style="width: 120px; height: 120px; border: 1px solid #f0f0f0; border-radius: 10px; overflow:hidden; background:#fff; display:flex; align-items:center; justify-content:center;">
               ${
                 imgUrl
-                  ? `<img src="${escapeHtml(
-                      imgUrl
-                    )}" alt="${title}" style="width:100%; height:100%; object-fit:contain;" />`
+                  ? `<img src="${escapeHtml(imgUrl)}" alt="${title}" style="width:100%; height:100%; object-fit:contain;" />`
                   : `<div style="font-size:12px; color:#999; padding:8px; text-align:center;">No image</div>`
               }
             </div>
@@ -913,21 +872,9 @@ const generateReceiptHtml = (
     String(paymentInfo?.paymentMethod || "").toLowerCase() === "paypal"
       ? `
           <div style="margin-top:10px; font-size:13px; color:#222; line-height:1.7;">
-            ${
-              paypalOrderID
-                ? `<div><strong>PayPal Order ID:</strong> ${paypalOrderID}</div>`
-                : ""
-            }
-            ${
-              paypalCaptureID
-                ? `<div><strong>PayPal Capture ID:</strong> ${paypalCaptureID}</div>`
-                : ""
-            }
-            ${
-              paypalPayerID
-                ? `<div><strong>PayPal Payer ID:</strong> ${paypalPayerID}</div>`
-                : ""
-            }
+            ${paypalOrderID ? `<div><strong>PayPal Order ID:</strong> ${paypalOrderID}</div>` : ""}
+            ${paypalCaptureID ? `<div><strong>PayPal Capture ID:</strong> ${paypalCaptureID}</div>` : ""}
+            ${paypalPayerID ? `<div><strong>PayPal Payer ID:</strong> ${paypalPayerID}</div>` : ""}
           </div>
         `
       : "";
@@ -949,9 +896,7 @@ const generateReceiptHtml = (
           <div><strong>Name:</strong> ${firstName} ${lastName}</div>
           ${phone ? `<div><strong>Phone:</strong> ${phone}</div>` : ""}
           ${email ? `<div><strong>Email:</strong> ${email}</div>` : ""}
-          <div><strong>Address:</strong> ${address}, ${region}${
-    subRegion ? `, ${subRegion}` : ""
-  }</div>
+          <div><strong>Address:</strong> ${address}, ${region}${subRegion ? `, ${subRegion}` : ""}</div>
         </div>
 
         <hr style="border:none; border-top:1px solid #eee; margin: 14px 0;" />
@@ -972,9 +917,7 @@ const generateReceiptHtml = (
 
           <div style="text-align:right; min-width: 220px;">
             <div style="font-size: 13px; color:#666;">Total</div>
-            <div style="font-size: 20px; font-weight: 800;">${escapeHtml(
-              formatUGX(totalPrice)
-            )}</div>
+            <div style="font-size: 20px; font-weight: 800;">${escapeHtml(formatUGX(totalPrice))}</div>
           </div>
         </div>
 
@@ -988,12 +931,6 @@ const generateReceiptHtml = (
 
 // ============================
 // ✅ CREATE ORDER (AUTH ONLY - NO GUEST)
-// ✅ Improvements added:
-//  - validate ObjectIds
-//  - validate unitPrice > 0
-//  - validate status/payment method
-//  - safer totals: recompute itemsTotal from orderItems
-//    (still keeps your shipping/setup totals from client, but item totals are protected)
 // ============================
 const createOrder = asyncHandler(async (req, res) => {
   const {
@@ -1011,75 +948,41 @@ const createOrder = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
   if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
-  if (!shippingInfo) {
-    return res.status(400).json({ message: "shippingInfo is required" });
-  }
+  if (!shippingInfo) return res.status(400).json({ message: "shippingInfo is required" });
   if (!Array.isArray(orderItems) || orderItems.length === 0) {
-    return res
-      .status(400)
-      .json({ message: "orderItems must be a non-empty array" });
+    return res.status(400).json({ message: "orderItems must be a non-empty array" });
   }
   if (!paymentInfo || typeof paymentInfo !== "object") {
     return res.status(400).json({ message: "paymentInfo is required" });
   }
 
-  // normalize shipping contact
   const safeShipping = {
     firstName: String(shippingInfo.firstName || "").trim(),
     lastName: String(shippingInfo.lastName || "").trim(),
-    phone:
-      normalizeMobile(shippingInfo.phone || "") ||
-      String(shippingInfo.phone || "").trim(),
+    phone: normalizeMobile(shippingInfo.phone || "") || String(shippingInfo.phone || "").trim(),
     email: normalizeEmail(shippingInfo.email || ""),
     address: String(shippingInfo.address || "").trim(),
     region: String(shippingInfo.region || "").trim(),
     subRegion: String(shippingInfo.subRegion || "").trim(),
   };
 
-  if (
-    !safeShipping.firstName ||
-    !safeShipping.lastName ||
-    !safeShipping.address ||
-    !safeShipping.region
-  ) {
-    return res
-      .status(400)
-      .json({ message: "shippingInfo is missing required fields" });
+  if (!safeShipping.firstName || !safeShipping.lastName || !safeShipping.address || !safeShipping.region) {
+    return res.status(400).json({ message: "shippingInfo is missing required fields" });
   }
-  if (!safeShipping.phone) {
-    return res.status(400).json({ message: "shippingInfo.phone is required" });
-  }
-  if (!safeShipping.email) {
-    return res.status(400).json({ message: "shippingInfo.email is required" });
-  }
+  if (!safeShipping.phone) return res.status(400).json({ message: "shippingInfo.phone is required" });
+  if (!safeShipping.email) return res.status(400).json({ message: "shippingInfo.email is required" });
 
   const paymentMethod = String(paymentInfo.paymentMethod || "").trim();
-  if (!paymentMethod) {
-    return res.status(400).json({ message: "Payment method is required" });
-  }
+  if (!paymentMethod) return res.status(400).json({ message: "Payment method is required" });
 
   const allowedPayments = ["cashOnDelivery", "mobileMoney", "card", "paypal"];
   if (!allowedPayments.includes(paymentMethod)) {
     return res.status(400).json({ message: "Invalid payment method" });
   }
 
-  const paypalOrderID =
-    paymentInfo.paypalOrderID ||
-    paymentInfo.orderID ||
-    paymentInfo.orderId ||
-    null;
-
-  const paypalCaptureID =
-    paymentInfo.paypalCaptureID ||
-    paymentInfo.captureID ||
-    paymentInfo.captureId ||
-    null;
-
-  const paypalPayerID =
-    paymentInfo.paypalPayerID ||
-    paymentInfo.payerID ||
-    paymentInfo.payerId ||
-    null;
+  const paypalOrderID = paymentInfo.paypalOrderID || paymentInfo.orderID || paymentInfo.orderId || null;
+  const paypalCaptureID = paymentInfo.paypalCaptureID || paymentInfo.captureID || paymentInfo.captureId || null;
+  const paypalPayerID = paymentInfo.paypalPayerID || paymentInfo.payerID || paymentInfo.payerId || null;
 
   const safePaymentInfo = {
     paymentMethod,
@@ -1092,17 +995,12 @@ const createOrder = asyncHandler(async (req, res) => {
   };
 
   if (paymentMethod === "paypal") {
-    if (!paypalOrderID) {
-      return res.status(400).json({ message: "PayPal Order ID is required" });
-    }
+    if (!paypalOrderID) return res.status(400).json({ message: "PayPal Order ID is required" });
     safePaymentInfo.paypalOrderID = String(paypalOrderID);
-    safePaymentInfo.paypalCaptureID = paypalCaptureID
-      ? String(paypalCaptureID)
-      : null;
+    safePaymentInfo.paypalCaptureID = paypalCaptureID ? String(paypalCaptureID) : null;
     safePaymentInfo.paypalPayerID = paypalPayerID ? String(paypalPayerID) : null;
   }
 
-  // Validate and map items (and compute items total securely)
   let computedItemsTotal = 0;
 
   const safeOrderItems = orderItems.map((it, idx) => {
@@ -1115,13 +1013,11 @@ const createOrder = asyncHandler(async (req, res) => {
     validateMongoDbId(prodId);
 
     const qty = Math.max(1, Number(it.quantity || 1));
-
     const unitPrice = requirePositiveMoney(it.unitPrice, `orderItems[${idx}].unitPrice`);
     computedItemsTotal += unitPrice * qty;
 
     const colorId = toId(it.color);
     const sizeId = toId(it.size);
-
     if (colorId) validateMongoDbId(colorId);
     if (sizeId) validateMongoDbId(sizeId);
 
@@ -1139,14 +1035,10 @@ const createOrder = asyncHandler(async (req, res) => {
     };
   });
 
-  // you can choose to trust client shipping/setup or also validate them:
   const safeShippingPrice = Math.max(0, toMoney(shippingPrice));
   const safeSetupFeeTotal = Math.max(0, toMoney(setupFeeTotal));
-
   const computedTotalPrice = computedItemsTotal + safeShippingPrice + safeSetupFeeTotal;
 
-  // if you want, you can enforce client totals match server totals:
-  // (this is optional, but recommended)
   if (itemsTotal != null && Math.abs(toMoney(itemsTotal) - computedItemsTotal) > 0.01) {
     return res.status(400).json({ message: "itemsTotal mismatch" });
   }
@@ -1155,9 +1047,7 @@ const createOrder = asyncHandler(async (req, res) => {
   }
 
   const safeTotalPriceAfterDiscount =
-    totalPriceAfterDiscount != null
-      ? Math.max(0, toMoney(totalPriceAfterDiscount))
-      : computedTotalPrice;
+    totalPriceAfterDiscount != null ? Math.max(0, toMoney(totalPriceAfterDiscount)) : computedTotalPrice;
 
   const order = await Order.create({
     user: userId,
@@ -1176,7 +1066,6 @@ const createOrder = asyncHandler(async (req, res) => {
     note: note ?? null,
   });
 
-  // send receipt to ACCOUNT email only
   const receiptTo = (await User.findById(userId).select("email"))?.email || null;
 
   if (receiptTo) {
@@ -1228,7 +1117,6 @@ const getAllOrders = asyncHandler(async (req, res) => {
   res.json({ orders });
 });
 
-// ✅ FIX: validateMongoDbId(id)
 const getSingleOrders = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
@@ -1242,8 +1130,6 @@ const getSingleOrders = asyncHandler(async (req, res) => {
   res.json({ order });
 });
 
-// ✅ FIX: validateMongoDbId(id) + allowed status + use save() (no double query)
-// ✅ Also prevents changing Delivered -> other statuses, and prevents un-cancelling
 const updateOrder = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -1251,9 +1137,7 @@ const updateOrder = asyncHandler(async (req, res) => {
   validateMongoDbId(id);
 
   const nextStatus = String(status || "").trim();
-  if (!nextStatus) {
-    return res.status(400).json({ message: "status is required" });
-  }
+  if (!nextStatus) return res.status(400).json({ message: "status is required" });
   if (!ORDER_STATUSES.includes(nextStatus)) {
     return res.status(400).json({ message: "Invalid order status" });
   }
@@ -1265,20 +1149,16 @@ const updateOrder = asyncHandler(async (req, res) => {
   }
 
   const current = String(order.orderStatus || "Ordered");
-
-  // policy: once Delivered, cannot change
   if (current === "Delivered") {
     return res.status(400).json({ message: "Delivered orders cannot be updated" });
   }
 
-  // policy: if already cancelled, do not allow moving out of Cancelled
   const isCancelled =
     Boolean(order.isCancelled) || String(order.orderStatus || "").toLowerCase() === "cancelled";
   if (isCancelled && nextStatus !== "Cancelled") {
     return res.status(400).json({ message: "Cancelled orders cannot be re-opened" });
   }
 
-  // keep cancel flags consistent
   if (nextStatus === "Cancelled") {
     order.isCancelled = true;
     order.cancelledAt = order.cancelledAt || new Date();
@@ -1352,7 +1232,7 @@ const getYearlyTotalOrders = asyncHandler(async (req, res) => {
 });
 
 // ============================
-// ✅ OTP / Verification Code
+// ✅ OTP
 // ============================
 const OTP_STORE = new Map();
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
@@ -1364,12 +1244,8 @@ const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "identity and type are required" });
   }
 
-  const normalized =
-    type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
-
-  if (!normalized) {
-    return res.status(400).json({ message: "identity is not valid" });
-  }
+  const normalized = type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+  if (!normalized) return res.status(400).json({ message: "identity is not valid" });
 
   const code = generateOtp();
   const expiresAt = Date.now() + 10 * 60 * 1000;
@@ -1378,14 +1254,12 @@ const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
   OTP_STORE.set(key, { code, expiresAt });
 
   if (type === "email") {
-    const data = {
+    await sendEmail({
       to: normalized,
       subject: "Kupto verification code",
       text: `Your Kupto verification code is ${code}. It expires in 10 minutes.`,
       html: `<p>Your Kupto verification code is <b>${code}</b>. It expires in 10 minutes.</p>`,
-    };
-
-    await sendEmail(data);
+    });
 
     return res.status(200).json({
       success: true,
@@ -1409,33 +1283,21 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
   const { identity, type, code } = req.body;
 
   if (!identity || !type || !code) {
-    return res
-      .status(400)
-      .json({ message: "identity, type and code are required" });
+    return res.status(400).json({ message: "identity, type and code are required" });
   }
 
-  const normalized =
-    type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
-
-  if (!normalized) {
-    return res.status(400).json({ message: "identity is not valid" });
-  }
+  const normalized = type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+  if (!normalized) return res.status(400).json({ message: "identity is not valid" });
 
   const key = `${type}:${normalized}`;
   const saved = OTP_STORE.get(key);
 
-  if (!saved) {
-    return res.status(400).json({ message: "Code not found. Please resend." });
-  }
-
+  if (!saved) return res.status(400).json({ message: "Code not found. Please resend." });
   if (Date.now() > saved.expiresAt) {
     OTP_STORE.delete(key);
     return res.status(400).json({ message: "Code expired. Please resend." });
   }
-
-  if (String(code).trim() !== saved.code) {
-    return res.status(400).json({ message: "Invalid code" });
-  }
+  if (String(code).trim() !== saved.code) return res.status(400).json({ message: "Invalid code" });
 
   OTP_STORE.delete(key);
 
@@ -1452,14 +1314,12 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
 // ✅ PASSWORD RESET VIA EMAIL CODE
 // ============================
 const PW_RESET_STORE = new Map();
-const generateResetCode = () =>
-  Math.floor(100000 + Math.random() * 900000).toString();
+const generateResetCode = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 const okGenericForgotResponse = (res) =>
   res.status(200).json({
     success: true,
-    message:
-      "If an account exists for this email, a verification code was sent.",
+    message: "If an account exists for this email, a verification code was sent.",
   });
 
 const forgotPasswordCode = asyncHandler(async (req, res) => {
@@ -1478,14 +1338,13 @@ const forgotPasswordCode = asyncHandler(async (req, res) => {
 
   PW_RESET_STORE.set(email, { code, expiresAt });
 
-  const data = {
+  await sendEmail({
     to: email,
     subject: "Kupto password reset code",
     text: `Your Kupto password reset code is ${code}. It expires in 10 minutes.`,
     html: `<p>Your Kupto password reset code is <b>${code}</b>. It expires in 10 minutes.</p>`,
-  };
+  });
 
-  await sendEmail(data);
   return okGenericForgotResponse(res);
 });
 
@@ -1516,11 +1375,7 @@ const verifyResetCode = asyncHandler(async (req, res) => {
     throw new Error("Invalid code");
   }
 
-  return res.status(200).json({
-    success: true,
-    message: "Code verified",
-    email,
-  });
+  return res.status(200).json({ success: true, message: "Code verified", email });
 });
 
 const resetPasswordWithCode = asyncHandler(async (req, res) => {
@@ -1562,10 +1417,7 @@ const resetPasswordWithCode = asyncHandler(async (req, res) => {
   user.password = password;
   await user.save();
 
-  return res.status(200).json({
-    success: true,
-    message: "Password reset successful",
-  });
+  return res.status(200).json({ success: true, message: "Password reset successful" });
 });
 
 // ============================
@@ -1592,11 +1444,7 @@ const cancelMyOrder = asyncHandler(async (req, res) => {
   }
 
   if (order.isCancelled || String(order.orderStatus).toLowerCase() === "cancelled") {
-    return res.status(200).json({
-      success: true,
-      message: "Order already cancelled",
-      order,
-    });
+    return res.status(200).json({ success: true, message: "Order already cancelled", order });
   }
 
   const status = String(order.orderStatus || "Ordered").toLowerCase();
@@ -1613,11 +1461,7 @@ const cancelMyOrder = asyncHandler(async (req, res) => {
 
   await order.save();
 
-  return res.status(200).json({
-    success: true,
-    message: "Order cancelled successfully",
-    order,
-  });
+  return res.status(200).json({ success: true, message: "Order cancelled successfully", order });
 });
 
 // ============================
@@ -1636,11 +1480,7 @@ const cancelOrderAdmin = asyncHandler(async (req, res) => {
   }
 
   if (order.isCancelled || String(order.orderStatus).toLowerCase() === "cancelled") {
-    return res.status(200).json({
-      success: true,
-      message: "Order already cancelled",
-      order,
-    });
+    return res.status(200).json({ success: true, message: "Order already cancelled", order });
   }
 
   const status = String(order.orderStatus || "Ordered").toLowerCase();
@@ -1657,15 +1497,11 @@ const cancelOrderAdmin = asyncHandler(async (req, res) => {
 
   await order.save();
 
-  return res.status(200).json({
-    success: true,
-    message: "Order cancelled",
-    order,
-  });
+  return res.status(200).json({ success: true, message: "Order cancelled", order });
 });
 
 // ============================
-// ✅ EXPORTS (FULL)
+// ✅ EXPORTS
 // ============================
 module.exports = {
   // auth
