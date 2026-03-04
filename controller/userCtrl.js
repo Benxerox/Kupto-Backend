@@ -7,21 +7,22 @@ const Order = require("../models/order.model");
 
 const uniqid = require("uniqid");
 const asyncHandler = require("express-async-handler");
-const { generateToken } = require("../config/jwtToken");
-const validateMongoDbId = require("../utils/validateMongodbid");
-const { generateRefreshToken } = require("../config/refreshToken");
-
 const jwt = require("jsonwebtoken");
-const sendEmail = require("./emailCtrl");
 const crypto = require("crypto");
 const mongoose = require("mongoose");
+
+const { generateToken } = require("../config/jwtToken");
+const { generateRefreshToken } = require("../config/refreshToken");
+const validateMongoDbId = require("../utils/validateMongodbid");
+
+const sendEmail = require("./emailCtrl");
 
 const { OAuth2Client } = require("google-auth-library");
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-// ============================
-// ✅ Helpers
-// ============================
+/* =========================================================
+   ✅ HELPERS
+========================================================= */
 const normalizeEmail = (v) => String(v || "").trim().toLowerCase();
 
 // ✅ Uganda E.164 normalization (+2567xxxxxxxx)
@@ -57,7 +58,7 @@ const getCookieOptions = () => {
   const isProd = process.env.NODE_ENV === "production";
   const isCrossSite =
     String(process.env.CROSS_SITE_COOKIES || "").toLowerCase() === "true";
-  const cookieDomain = process.env.COOKIE_DOMAIN; // e.g. ".kupto2020.com"
+  const cookieDomain = process.env.COOKIE_DOMAIN; // e.g. ".kupto.co"
 
   const base = {
     httpOnly: true,
@@ -94,6 +95,7 @@ const toMoney = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
+
 const requirePositiveMoney = (v, fieldName = "amount") => {
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0) {
@@ -104,9 +106,11 @@ const requirePositiveMoney = (v, fieldName = "amount") => {
   return n;
 };
 
-// ============================
+/* =========================================================
+   ✅ AUTH
+========================================================= */
+
 // ✅ REGISTER
-// ============================
 const registerUserCtrl = asyncHandler(async (req, res) => {
   const { firstname, lastname, email, mobile, dob, password } = req.body;
 
@@ -166,9 +170,7 @@ const registerUserCtrl = asyncHandler(async (req, res) => {
   }
 });
 
-// ============================
 // ✅ LOGIN (email OR phone)
-// ============================
 const loginUserCtrl = asyncHandler(async (req, res) => {
   const { identity, type, email, mobile, password } = req.body;
 
@@ -216,9 +218,7 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
   });
 });
 
-// ============================
 // ✅ GOOGLE LOGIN
-// ============================
 const googleLoginCtrl = asyncHandler(async (req, res) => {
   const { credential } = req.body;
 
@@ -248,6 +248,7 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
   const cleanEmail = normalizeEmail(email);
   let user = await User.findOne({ email: cleanEmail });
 
+  // If new Google user, require profile completion (phone + dob + password flow etc.)
   if (!user) {
     const parts = String(fullName).trim().split(" ");
     const firstname = parts[0] || "Kupto";
@@ -284,9 +285,7 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
   });
 });
 
-// ============================
 // ✅ IDENTIFY USER
-// ============================
 const identifyUserCtrl = asyncHandler(async (req, res) => {
   const { identity, type } = req.body;
 
@@ -332,9 +331,7 @@ const identifyUserCtrl = asyncHandler(async (req, res) => {
   });
 });
 
-// ============================
 // ✅ ADMIN LOGIN
-// ============================
 const loginAdmin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
@@ -372,10 +369,7 @@ const loginAdmin = asyncHandler(async (req, res) => {
   });
 });
 
-// ============================
 // ✅ HANDLE REFRESH TOKEN (rotates refresh token)
-// ✅ IMPORTANT: if you DON'T have JWT_REFRESH_SECRET, then verify with JWT_SECRET
-// ============================
 const handleRefreshToken = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
   if (!cookie?.refreshToken) {
@@ -392,8 +386,13 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
   }
 
   try {
-    // If you use a separate secret for refresh, set JWT_REFRESH_SECRET and use it.
+    // verify refresh token using refresh secret (fallback to JWT_SECRET)
     const refreshSecret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
+    if (!refreshSecret) {
+      res.status(500);
+      throw new Error("JWT refresh secret is missing on server");
+    }
+
     const decoded = jwt.verify(refreshToken, refreshSecret);
 
     if (String(user._id) !== String(decoded.id)) {
@@ -401,6 +400,7 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
       throw new Error("There is something wrong with the refresh token");
     }
 
+    // rotate refresh token
     const newRefreshToken = generateRefreshToken(user._id);
     user.refreshToken = newRefreshToken;
     await user.save();
@@ -415,9 +415,7 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
   }
 });
 
-// ============================
 // ✅ LOGOUT
-// ============================
 const logout = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
   if (!cookie?.refreshToken) return res.sendStatus(204);
@@ -436,9 +434,9 @@ const logout = asyncHandler(async (req, res) => {
   res.sendStatus(204);
 });
 
-// ============================
-// ✅ UPDATE USER
-// ============================
+/* =========================================================
+   ✅ PROFILE
+========================================================= */
 const updatedUser = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   validateMongoDbId(_id);
@@ -472,9 +470,6 @@ const updatedUser = asyncHandler(async (req, res) => {
   }
 });
 
-// ============================
-// ✅ SAVE ADDRESS
-// ============================
 const saveAddress = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   validateMongoDbId(_id);
@@ -488,17 +483,14 @@ const saveAddress = asyncHandler(async (req, res) => {
   res.json(user);
 });
 
-// ============================
-// ✅ GET ALL USERS
-// ============================
+/* =========================================================
+   ✅ ADMIN: USERS
+========================================================= */
 const getallUser = asyncHandler(async (req, res) => {
   const users = await User.find().select("-password -refreshToken");
   res.json(users);
 });
 
-// ============================
-// ✅ GET SINGLE USER
-// ============================
 const getaUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
@@ -507,9 +499,6 @@ const getaUser = asyncHandler(async (req, res) => {
   res.json({ getaUser: user });
 });
 
-// ============================
-// ✅ DELETE USER
-// ============================
 const deleteaUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
@@ -518,9 +507,6 @@ const deleteaUser = asyncHandler(async (req, res) => {
   res.json({ deleteaUser: user });
 });
 
-// ============================
-// ✅ BLOCK / UNBLOCK
-// ============================
 const blockUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
@@ -537,9 +523,9 @@ const unblockUser = asyncHandler(async (req, res) => {
   res.json({ message: "User UnBlocked" });
 });
 
-// ============================
-// ✅ UPDATE PASSWORD
-// ============================
+/* =========================================================
+   ✅ PASSWORD
+========================================================= */
 const updatePassword = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   const { password } = req.body;
@@ -560,9 +546,9 @@ const updatePassword = asyncHandler(async (req, res) => {
   }
 });
 
-// ============================
-// ✅ WISHLIST
-// ============================
+/* =========================================================
+   ✅ WISHLIST
+========================================================= */
 const getWishlist = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   const user = await User.findById(_id).populate("wishlist");
@@ -585,9 +571,9 @@ const removeProductFromWishlist = asyncHandler(async (req, res) => {
   res.json(user);
 });
 
-// ============================
-// ✅ CART
-// ============================
+/* =========================================================
+   ✅ CART
+========================================================= */
 const userCart = asyncHandler(async (req, res) => {
   const {
     productId,
@@ -635,13 +621,18 @@ const userCart = asyncHandler(async (req, res) => {
 
     existing.printSide = printSide ?? existing.printSide ?? "";
     existing.printUnitPrice =
-      printUnitPrice != null ? Number(printUnitPrice) : Number(existing.printUnitPrice || 0);
+      printUnitPrice != null
+        ? Number(printUnitPrice)
+        : Number(existing.printUnitPrice || 0);
 
     existing.printKey = printKey ?? existing.printKey ?? "";
-    existing.printPricingTitle = printPricingTitle ?? existing.printPricingTitle ?? "";
+    existing.printPricingTitle =
+      printPricingTitle ?? existing.printPricingTitle ?? "";
 
     existing.preparePriceOnce =
-      preparePriceOnce != null ? Number(preparePriceOnce) : Number(existing.preparePriceOnce || 0);
+      preparePriceOnce != null
+        ? Number(preparePriceOnce)
+        : Number(existing.preparePriceOnce || 0);
 
     existing.preparePriceApplied =
       preparePriceApplied != null
@@ -734,10 +725,16 @@ const emptyCart = asyncHandler(async (req, res) => {
   res.json(deleted);
 });
 
-// ============================
-// ✅ RECEIPT HTML
-// ============================
-const generateReceiptHtml = (order, shippingInfo = {}, orderItems = [], totalPrice = 0, paymentInfo = {}) => {
+/* =========================================================
+   ✅ RECEIPT HTML (EMAIL)
+========================================================= */
+const generateReceiptHtml = (
+  order,
+  shippingInfo = {},
+  orderItems = [],
+  totalPrice = 0,
+  paymentInfo = {}
+) => {
   const escapeHtml = (v) =>
     String(v ?? "")
       .replace(/&/g, "&amp;")
@@ -794,9 +791,15 @@ const generateReceiptHtml = (order, shippingInfo = {}, orderItems = [], totalPri
   const paymentMethod = escapeHtml(paymentInfo?.paymentMethod || "Not specified");
   const payStatus = escapeHtml(paymentInfo?.status || "Pending");
 
-  const paypalOrderID = paymentInfo?.paypalOrderID ? escapeHtml(paymentInfo.paypalOrderID) : "";
-  const paypalCaptureID = paymentInfo?.paypalCaptureID ? escapeHtml(paymentInfo.paypalCaptureID) : "";
-  const paypalPayerID = paymentInfo?.paypalPayerID ? escapeHtml(paymentInfo.paypalPayerID) : "";
+  const paypalOrderID = paymentInfo?.paypalOrderID
+    ? escapeHtml(paymentInfo.paypalOrderID)
+    : "";
+  const paypalCaptureID = paymentInfo?.paypalCaptureID
+    ? escapeHtml(paymentInfo.paypalCaptureID)
+    : "";
+  const paypalPayerID = paymentInfo?.paypalPayerID
+    ? escapeHtml(paymentInfo.paypalPayerID)
+    : "";
 
   const itemsHtml = (Array.isArray(orderItems) ? orderItems : [])
     .map((item) => {
@@ -829,7 +832,11 @@ const generateReceiptHtml = (order, shippingInfo = {}, orderItems = [], totalPri
                    );
                    const url = f?.url ? escapeHtml(f.url) : "";
                    return `<li style="margin:4px 0;">
-                             ${url ? `<a href="${url}" target="_blank" rel="noreferrer">${name}</a>` : name}
+                             ${
+                               url
+                                 ? `<a href="${url}" target="_blank" rel="noreferrer">${name}</a>`
+                                 : name
+                             }
                            </li>`;
                  })
                  .join("")}
@@ -896,7 +903,9 @@ const generateReceiptHtml = (order, shippingInfo = {}, orderItems = [], totalPri
           <div><strong>Name:</strong> ${firstName} ${lastName}</div>
           ${phone ? `<div><strong>Phone:</strong> ${phone}</div>` : ""}
           ${email ? `<div><strong>Email:</strong> ${email}</div>` : ""}
-          <div><strong>Address:</strong> ${address}, ${region}${subRegion ? `, ${subRegion}` : ""}</div>
+          <div><strong>Address:</strong> ${address}, ${region}${
+            subRegion ? `, ${subRegion}` : ""
+          }</div>
         </div>
 
         <hr style="border:none; border-top:1px solid #eee; margin: 14px 0;" />
@@ -917,7 +926,9 @@ const generateReceiptHtml = (order, shippingInfo = {}, orderItems = [], totalPri
 
           <div style="text-align:right; min-width: 220px;">
             <div style="font-size: 13px; color:#666;">Total</div>
-            <div style="font-size: 20px; font-weight: 800;">${escapeHtml(formatUGX(totalPrice))}</div>
+            <div style="font-size: 20px; font-weight: 800;">${escapeHtml(
+              formatUGX(totalPrice)
+            )}</div>
           </div>
         </div>
 
@@ -929,9 +940,9 @@ const generateReceiptHtml = (order, shippingInfo = {}, orderItems = [], totalPri
   `;
 };
 
-// ============================
-// ✅ CREATE ORDER (AUTH ONLY - NO GUEST)
-// ============================
+/* =========================================================
+   ✅ ORDERS
+========================================================= */
 const createOrder = asyncHandler(async (req, res) => {
   const {
     shippingInfo,
@@ -948,10 +959,15 @@ const createOrder = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
   if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
-  if (!shippingInfo) return res.status(400).json({ message: "shippingInfo is required" });
+  if (!shippingInfo)
+    return res.status(400).json({ message: "shippingInfo is required" });
+
   if (!Array.isArray(orderItems) || orderItems.length === 0) {
-    return res.status(400).json({ message: "orderItems must be a non-empty array" });
+    return res
+      .status(400)
+      .json({ message: "orderItems must be a non-empty array" });
   }
+
   if (!paymentInfo || typeof paymentInfo !== "object") {
     return res.status(400).json({ message: "paymentInfo is required" });
   }
@@ -959,30 +975,54 @@ const createOrder = asyncHandler(async (req, res) => {
   const safeShipping = {
     firstName: String(shippingInfo.firstName || "").trim(),
     lastName: String(shippingInfo.lastName || "").trim(),
-    phone: normalizeMobile(shippingInfo.phone || "") || String(shippingInfo.phone || "").trim(),
+    phone:
+      normalizeMobile(shippingInfo.phone || "") ||
+      String(shippingInfo.phone || "").trim(),
     email: normalizeEmail(shippingInfo.email || ""),
     address: String(shippingInfo.address || "").trim(),
     region: String(shippingInfo.region || "").trim(),
     subRegion: String(shippingInfo.subRegion || "").trim(),
   };
 
-  if (!safeShipping.firstName || !safeShipping.lastName || !safeShipping.address || !safeShipping.region) {
-    return res.status(400).json({ message: "shippingInfo is missing required fields" });
+  if (
+    !safeShipping.firstName ||
+    !safeShipping.lastName ||
+    !safeShipping.address ||
+    !safeShipping.region
+  ) {
+    return res
+      .status(400)
+      .json({ message: "shippingInfo is missing required fields" });
   }
-  if (!safeShipping.phone) return res.status(400).json({ message: "shippingInfo.phone is required" });
-  if (!safeShipping.email) return res.status(400).json({ message: "shippingInfo.email is required" });
+  if (!safeShipping.phone)
+    return res.status(400).json({ message: "shippingInfo.phone is required" });
+  if (!safeShipping.email)
+    return res.status(400).json({ message: "shippingInfo.email is required" });
 
   const paymentMethod = String(paymentInfo.paymentMethod || "").trim();
-  if (!paymentMethod) return res.status(400).json({ message: "Payment method is required" });
+  if (!paymentMethod)
+    return res.status(400).json({ message: "Payment method is required" });
 
   const allowedPayments = ["cashOnDelivery", "mobileMoney", "card", "paypal"];
   if (!allowedPayments.includes(paymentMethod)) {
     return res.status(400).json({ message: "Invalid payment method" });
   }
 
-  const paypalOrderID = paymentInfo.paypalOrderID || paymentInfo.orderID || paymentInfo.orderId || null;
-  const paypalCaptureID = paymentInfo.paypalCaptureID || paymentInfo.captureID || paymentInfo.captureId || null;
-  const paypalPayerID = paymentInfo.paypalPayerID || paymentInfo.payerID || paymentInfo.payerId || null;
+  const paypalOrderID =
+    paymentInfo.paypalOrderID ||
+    paymentInfo.orderID ||
+    paymentInfo.orderId ||
+    null;
+  const paypalCaptureID =
+    paymentInfo.paypalCaptureID ||
+    paymentInfo.captureID ||
+    paymentInfo.captureId ||
+    null;
+  const paypalPayerID =
+    paymentInfo.paypalPayerID ||
+    paymentInfo.payerID ||
+    paymentInfo.payerId ||
+    null;
 
   const safePaymentInfo = {
     paymentMethod,
@@ -995,7 +1035,10 @@ const createOrder = asyncHandler(async (req, res) => {
   };
 
   if (paymentMethod === "paypal") {
-    if (!paypalOrderID) return res.status(400).json({ message: "PayPal Order ID is required" });
+    if (!paypalOrderID)
+      return res
+        .status(400)
+        .json({ message: "PayPal Order ID is required" });
     safePaymentInfo.paypalOrderID = String(paypalOrderID);
     safePaymentInfo.paypalCaptureID = paypalCaptureID ? String(paypalCaptureID) : null;
     safePaymentInfo.paypalPayerID = paypalPayerID ? String(paypalPayerID) : null;
@@ -1013,7 +1056,10 @@ const createOrder = asyncHandler(async (req, res) => {
     validateMongoDbId(prodId);
 
     const qty = Math.max(1, Number(it.quantity || 1));
-    const unitPrice = requirePositiveMoney(it.unitPrice, `orderItems[${idx}].unitPrice`);
+    const unitPrice = requirePositiveMoney(
+      it.unitPrice,
+      `orderItems[${idx}].unitPrice`
+    );
     computedItemsTotal += unitPrice * qty;
 
     const colorId = toId(it.color);
@@ -1047,7 +1093,9 @@ const createOrder = asyncHandler(async (req, res) => {
   }
 
   const safeTotalPriceAfterDiscount =
-    totalPriceAfterDiscount != null ? Math.max(0, toMoney(totalPriceAfterDiscount)) : computedTotalPrice;
+    totalPriceAfterDiscount != null
+      ? Math.max(0, toMoney(totalPriceAfterDiscount))
+      : computedTotalPrice;
 
   const order = await Order.create({
     user: userId,
@@ -1097,9 +1145,6 @@ const createOrder = asyncHandler(async (req, res) => {
   return res.status(201).json({ success: true, order });
 });
 
-// ============================
-// ✅ ORDERS
-// ============================
 const getMyOrders = asyncHandler(async (req, res) => {
   const { _id } = req.user;
 
@@ -1154,7 +1199,9 @@ const updateOrder = asyncHandler(async (req, res) => {
   }
 
   const isCancelled =
-    Boolean(order.isCancelled) || String(order.orderStatus || "").toLowerCase() === "cancelled";
+    Boolean(order.isCancelled) ||
+    String(order.orderStatus || "").toLowerCase() === "cancelled";
+
   if (isCancelled && nextStatus !== "Cancelled") {
     return res.status(400).json({ message: "Cancelled orders cannot be re-opened" });
   }
@@ -1171,9 +1218,9 @@ const updateOrder = asyncHandler(async (req, res) => {
   res.json({ order });
 });
 
-// ============================
-// ✅ ANALYTICS
-// ============================
+/* =========================================================
+   ✅ ANALYTICS
+========================================================= */
 const getMonthWiseOrderIncome = asyncHandler(async (req, res) => {
   let d = new Date();
   d.setDate(1);
@@ -1231,11 +1278,12 @@ const getYearlyTotalOrders = asyncHandler(async (req, res) => {
   res.json(data);
 });
 
-// ============================
-// ✅ OTP
-// ============================
+/* =========================================================
+   ✅ OTP (NO AUTH)
+========================================================= */
 const OTP_STORE = new Map();
-const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
+const generateOtp = () =>
+  Math.floor(100000 + Math.random() * 900000).toString();
 
 const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
   const { identity, type } = req.body;
@@ -1244,7 +1292,9 @@ const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "identity and type are required" });
   }
 
-  const normalized = type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+  const normalized =
+    type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+
   if (!normalized) return res.status(400).json({ message: "identity is not valid" });
 
   const code = generateOtp();
@@ -1286,7 +1336,9 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "identity, type and code are required" });
   }
 
-  const normalized = type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+  const normalized =
+    type === "email" ? normalizeEmail(identity) : normalizeMobile(identity);
+
   if (!normalized) return res.status(400).json({ message: "identity is not valid" });
 
   const key = `${type}:${normalized}`;
@@ -1310,11 +1362,12 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
   });
 });
 
-// ============================
-// ✅ PASSWORD RESET VIA EMAIL CODE
-// ============================
+/* =========================================================
+   ✅ PASSWORD RESET VIA EMAIL CODE
+========================================================= */
 const PW_RESET_STORE = new Map();
-const generateResetCode = () => Math.floor(100000 + Math.random() * 900000).toString();
+const generateResetCode = () =>
+  Math.floor(100000 + Math.random() * 900000).toString();
 
 const okGenericForgotResponse = (res) =>
   res.status(200).json({
@@ -1420,9 +1473,9 @@ const resetPasswordWithCode = asyncHandler(async (req, res) => {
   return res.status(200).json({ success: true, message: "Password reset successful" });
 });
 
-// ============================
-// ✅ CANCEL MY ORDER (AUTH)
-// ============================
+/* =========================================================
+   ✅ ORDER CANCELLATION
+========================================================= */
 const cancelMyOrder = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { reason } = req.body;
@@ -1464,9 +1517,6 @@ const cancelMyOrder = asyncHandler(async (req, res) => {
   return res.status(200).json({ success: true, message: "Order cancelled successfully", order });
 });
 
-// ============================
-// ✅ CANCEL ORDER (ADMIN)
-// ============================
 const cancelOrderAdmin = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { reason } = req.body;
@@ -1500,9 +1550,9 @@ const cancelOrderAdmin = asyncHandler(async (req, res) => {
   return res.status(200).json({ success: true, message: "Order cancelled", order });
 });
 
-// ============================
-// ✅ EXPORTS
-// ============================
+/* =========================================================
+   ✅ EXPORTS
+========================================================= */
 module.exports = {
   // auth
   registerUserCtrl,
@@ -1513,21 +1563,24 @@ module.exports = {
   handleRefreshToken,
   logout,
 
-  // user
+  // profile
+  updatedUser,
+  saveAddress,
+
+  // admin users
   getallUser,
   getaUser,
   deleteaUser,
-  updatedUser,
   blockUser,
   unblockUser,
+
+  // password
   updatePassword,
 
   // password reset
   forgotPasswordCode,
   verifyResetCode,
   resetPasswordWithCode,
-
-  saveAddress,
 
   // wishlist
   getWishlist,
