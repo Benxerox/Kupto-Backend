@@ -72,10 +72,11 @@ const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
 
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-
-    console.log("❌ CORS blocked origin:", origin);
-    return callback(null, false); // ✅ block without crashing
+    if (!allowedOrigins.includes(origin)) {
+  console.log("❌ CORS blocked origin:", origin);
+  return callback(new Error("Not allowed by CORS"));
+}
+return callback(null, true);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
