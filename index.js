@@ -43,12 +43,12 @@ dbConnect();
 app.set("trust proxy", 1);
 
 /* =========================
-   ✅ CORS (FIXED)
-   - Adds missing common origins (127.0.0.1, kupto.co)
-   - DOES NOT throw Error (prevents browser "Network Error"/ERR_FAILED)
-   - Keeps credentials true (cookies)
+   ✅ CORS (UPDATED - SAFE)
+   - ✅ DOES NOT throw Error (prevents browser "Network Error"/ERR_FAILED)
+   - ✅ Credentials true (cookies)
+   - ✅ Handles preflight cleanly
+   - ✅ Adds PATCH + Accept header
 ========================= */
-
 
 const allowedOrigins = [
   "https://kupto-admin.com",
@@ -57,6 +57,12 @@ const allowedOrigins = [
   "https://kupto.co",
   "https://www.kupto.co",
   "http://kupto.co",
+
+  // ✅ Add any extra real frontends you use (uncomment if applicable)
+  // "https://kupto2020.com",
+  // "https://www.kupto2020.com",
+  // "https://kupto-0a0835a1dfe5.herokuapp.com",
+  // "https://your-site.netlify.app",
 
   "http://localhost:3000",
   "http://127.0.0.1:3000",
@@ -67,26 +73,29 @@ const allowedOrigins = [
   "https://localhost",
 ];
 
-
 const corsOptions = {
-  origin: function (origin, callback) {
+  origin: (origin, callback) => {
+    // allow server-to-server / curl / mobile apps with no Origin
     if (!origin) return callback(null, true);
 
-    if (!allowedOrigins.includes(origin)) {
-  console.log("❌ CORS blocked origin:", origin);
-  return callback(new Error("Not allowed by CORS"));
-}
-return callback(null, true);
+    const ok = allowedOrigins.includes(origin);
+
+    if (!ok) {
+      console.log("❌ CORS blocked origin:", origin);
+      // ✅ IMPORTANT: don't throw error (causes Network Error in browser)
+      return callback(null, false);
+    }
+
+    return callback(null, true);
   },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+  optionsSuccessStatus: 204,
 };
+
 app.use(cors(corsOptions));
-
 app.options("*", cors(corsOptions));
-
-
 
 /* =========================
    MIDDLEWARES
@@ -230,9 +239,9 @@ const fetchAirtelToken = async () => {
   const clientId = process.env.AIRTEL_CLIENT_ID;
   const clientSecret = process.env.AIRTEL_CLIENT_SECRET;
 
-  const base64Credentials = Buffer.from(
-    `${clientId}:${clientSecret}`
-  ).toString("base64");
+  const base64Credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
+    "base64"
+  );
 
   const response = await axios.post(
     "https://openapi.airtel.africa/auth/oauth2/token",
@@ -254,10 +263,7 @@ app.post("/api/airtel/token", async (req, res) => {
     const token = await fetchAirtelToken();
     res.json({ accessToken: token });
   } catch (error) {
-    console.error(
-      "Error fetching Airtel token:",
-      error.response?.data || error.message
-    );
+    console.error("Error fetching Airtel token:", error.response?.data || error.message);
     res.status(500).json({ error: "Failed to fetch Airtel token" });
   }
 });
