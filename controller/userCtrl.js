@@ -123,6 +123,92 @@ const formatUGX = (n) => {
 const getAdminOrderEmail = () =>
   process.env.ADMIN_ORDER_EMAIL || "kupto2020@gmail.com";
 
+/* =========================================================
+   ✅ REFRESH TOKEN HELPERS (MULTI-DEVICE SAFE)
+========================================================= */
+
+/**
+ * Supports:
+ * - new schema: refreshTokens: [String]
+ * - legacy schema: refreshToken: String
+ */
+
+const MAX_REFRESH_TOKENS_PER_USER = 10;
+
+const getUserRefreshTokens = (user) => {
+  if (!user) return [];
+  if (Array.isArray(user.refreshTokens)) {
+    return user.refreshTokens.filter(Boolean).map(String);
+  }
+  return [];
+};
+
+const setUserRefreshTokens = (user, tokens = []) => {
+  user.refreshTokens = [...new Set((tokens || []).filter(Boolean).map(String))];
+};
+
+const addRefreshTokenToUser = (user, token) => {
+  const existing = getUserRefreshTokens(user).filter((t) => t !== String(token));
+  existing.push(String(token));
+
+  // Keep only the most recent N sessions
+  const trimmed =
+    existing.length > MAX_REFRESH_TOKENS_PER_USER
+      ? existing.slice(existing.length - MAX_REFRESH_TOKENS_PER_USER)
+      : existing;
+
+  setUserRefreshTokens(user, trimmed);
+
+  // clear legacy single token field if it exists
+  if ("refreshToken" in user) user.refreshToken = "";
+};
+
+const removeRefreshTokenFromUser = (user, token) => {
+  const remaining = getUserRefreshTokens(user).filter((t) => t !== String(token));
+  setUserRefreshTokens(user, remaining);
+
+  // clear legacy single token field if it matches
+  if (String(user.refreshToken || "") === String(token)) {
+    user.refreshToken = "";
+  }
+};
+
+const hasRefreshToken = (user, token) => {
+  const target = String(token || "");
+  if (!target || !user) return false;
+
+  if (getUserRefreshTokens(user).includes(target)) return true;
+
+  // legacy fallback
+  return String(user.refreshToken || "") === target;
+};
+
+const findUserByRefreshToken = async (token) => {
+  const found = await User.findOne({
+    $or: [{ refreshTokens: token }, { refreshToken: token }],
+  });
+
+  return found;
+};
+
+const issueSession = async (res, user) => {
+  const refreshToken = generateRefreshToken(user._id);
+  addRefreshTokenToUser(user, refreshToken);
+  await user.save();
+
+  res.cookie("refreshToken", refreshToken, getCookieOptions());
+
+  return {
+    success: true,
+    id: user._id,
+    firstname: user.firstname,
+    lastname: user.lastname,
+    email: user.email,
+    mobile: user.mobile,
+    token: generateToken(user._id),
+  };
+};
+
 const generateAdminOrderNotificationHtml = (
   order,
   shippingInfo = {},
@@ -254,23 +340,12 @@ const registerUserCtrl = asyncHandler(async (req, res) => {
       mobile: cleanMobile,
       dob: new Date(dob),
       password,
+      refreshTokens: [],
     });
 
-    const refreshToken = generateRefreshToken(newUser._id);
-    newUser.refreshToken = refreshToken;
-    await newUser.save();
+    const sessionPayload = await issueSession(res, newUser);
 
-    res.cookie("refreshToken", refreshToken, getCookieOptions());
-
-    return res.status(201).json({
-      success: true,
-      id: newUser._id,
-      firstname: newUser.firstname,
-      lastname: newUser.lastname,
-      email: newUser.email,
-      mobile: newUser.mobile,
-      token: generateToken(newUser._id),
-    });
+    return res.status(201).json(sessionPayload);
   } catch (err) {
     if (isMongoDupError(err)) {
       res.status(409);
@@ -311,21 +386,9 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
   const ok = await user.isPasswordMatched(password);
   if (!ok) return invalidCreds(res);
 
-  const refreshToken = generateRefreshToken(user._id);
-  user.refreshToken = refreshToken;
-  await user.save();
+  const sessionPayload = await issueSession(res, user);
 
-  res.cookie("refreshToken", refreshToken, getCookieOptions());
-
-  res.json({
-    success: true,
-    id: user._id,
-    firstname: user.firstname,
-    lastname: user.lastname,
-    email: user.email,
-    mobile: user.mobile,
-    token: generateToken(user._id),
-  });
+  res.json(sessionPayload);
 });
 
 // ✅ GOOGLE LOGIN
@@ -358,7 +421,7 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
   const cleanEmail = normalizeEmail(email);
   let user = await User.findOne({ email: cleanEmail });
 
-  // If new Google user, require profile completion (phone + dob + password flow etc.)
+  // If new Google user, require profile completion
   if (!user) {
     const parts = String(fullName).trim().split(" ");
     const firstname = parts[0] || "Kupto";
@@ -377,21 +440,11 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
     throw new Error("Account is blocked");
   }
 
-  const refreshToken = generateRefreshToken(user._id);
-  user.refreshToken = refreshToken;
-  await user.save();
-
-  res.cookie("refreshToken", refreshToken, getCookieOptions());
+  const sessionPayload = await issueSession(res, user);
 
   res.json({
-    success: true,
+    ...sessionPayload,
     profileRequired: false,
-    id: user._id,
-    firstname: user.firstname,
-    lastname: user.lastname,
-    email: user.email,
-    mobile: user.mobile,
-    token: generateToken(user._id),
   });
 });
 
@@ -462,24 +515,12 @@ const loginAdmin = asyncHandler(async (req, res) => {
   const passwordMatch = await findAdmin.isPasswordMatched(password);
   if (!passwordMatch) return invalidCreds(res);
 
-  const refreshToken = generateRefreshToken(findAdmin._id);
-  findAdmin.refreshToken = refreshToken;
-  await findAdmin.save();
+  const sessionPayload = await issueSession(res, findAdmin);
 
-  res.cookie("refreshToken", refreshToken, getCookieOptions());
-
-  res.json({
-    success: true,
-    id: findAdmin._id,
-    firstname: findAdmin.firstname,
-    lastname: findAdmin.lastname,
-    email: findAdmin.email,
-    mobile: findAdmin.mobile,
-    token: generateToken(findAdmin._id),
-  });
+  res.json(sessionPayload);
 });
 
-// ✅ HANDLE REFRESH TOKEN (rotates refresh token)
+// ✅ HANDLE REFRESH TOKEN (rotates only the current device token)
 const handleRefreshToken = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
   if (!cookie?.refreshToken) {
@@ -487,16 +528,15 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
     throw new Error("No Refresh Token in Cookies");
   }
 
-  const refreshToken = cookie.refreshToken;
+  const refreshToken = String(cookie.refreshToken || "");
+  const user = await findUserByRefreshToken(refreshToken);
 
-  const user = await User.findOne({ refreshToken });
-  if (!user) {
+  if (!user || !hasRefreshToken(user, refreshToken)) {
     res.status(401);
     throw new Error("No Refresh Token Present in DB or not matched");
   }
 
   try {
-    // verify refresh token using refresh secret (fallback to JWT_SECRET)
     const refreshSecret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
     if (!refreshSecret) {
       res.status(500);
@@ -510,9 +550,12 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
       throw new Error("There is something wrong with the refresh token");
     }
 
-    // rotate refresh token
+    // rotate only THIS token, not all sessions
+    removeRefreshTokenFromUser(user, refreshToken);
+
     const newRefreshToken = generateRefreshToken(user._id);
-    user.refreshToken = newRefreshToken;
+    addRefreshTokenToUser(user, newRefreshToken);
+
     await user.save();
 
     res.cookie("refreshToken", newRefreshToken, getCookieOptions());
@@ -520,27 +563,33 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
     const accessToken = generateToken(user._id);
     res.json({ token: accessToken, accessToken });
   } catch (err) {
+    // remove bad token from DB so it cannot keep failing
+    removeRefreshTokenFromUser(user, refreshToken);
+    await user.save();
+
+    res.clearCookie("refreshToken", getClearCookieOptions());
     res.status(401);
     throw new Error("Invalid or expired refresh token");
   }
 });
 
-// ✅ LOGOUT
+// ✅ LOGOUT (remove only current device token)
 const logout = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
   if (!cookie?.refreshToken) return res.sendStatus(204);
 
-  const refreshToken = cookie.refreshToken;
-  const user = await User.findOne({ refreshToken });
+  const refreshToken = String(cookie.refreshToken || "");
+  const user = await findUserByRefreshToken(refreshToken);
 
   if (!user) {
     res.clearCookie("refreshToken", getClearCookieOptions());
     return res.sendStatus(204);
   }
 
-  await User.findOneAndUpdate({ refreshToken }, { refreshToken: "" });
-  res.clearCookie("refreshToken", getClearCookieOptions());
+  removeRefreshTokenFromUser(user, refreshToken);
+  await user.save();
 
+  res.clearCookie("refreshToken", getClearCookieOptions());
   res.sendStatus(204);
 });
 
@@ -567,7 +616,7 @@ const updatedUser = asyncHandler(async (req, res) => {
     Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
 
     const user = await User.findByIdAndUpdate(_id, payload, { new: true }).select(
-      "-password -refreshToken"
+      "-password -refreshToken -refreshTokens"
     );
 
     res.json(user);
@@ -588,7 +637,7 @@ const saveAddress = asyncHandler(async (req, res) => {
     _id,
     { address: req?.body?.address },
     { new: true }
-  ).select("-password -refreshToken");
+  ).select("-password -refreshToken -refreshTokens");
 
   res.json(user);
 });
@@ -597,7 +646,7 @@ const saveAddress = asyncHandler(async (req, res) => {
    ✅ ADMIN: USERS
 ========================================================= */
 const getallUser = asyncHandler(async (req, res) => {
-  const users = await User.find().select("-password -refreshToken");
+  const users = await User.find().select("-password -refreshToken -refreshTokens");
   res.json(users);
 });
 
@@ -605,7 +654,7 @@ const getaUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
 
-  const user = await User.findById(id).select("-password -refreshToken");
+  const user = await User.findById(id).select("-password -refreshToken -refreshTokens");
   res.json({ getaUser: user });
 });
 
@@ -613,7 +662,9 @@ const deleteaUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   validateMongoDbId(id);
 
-  const user = await User.findByIdAndDelete(id).select("-password -refreshToken");
+  const user = await User.findByIdAndDelete(id).select(
+    "-password -refreshToken -refreshTokens"
+  );
   res.json({ deleteaUser: user });
 });
 
@@ -1470,7 +1521,9 @@ const verifyCodeCtrl = asyncHandler(async (req, res) => {
     OTP_STORE.delete(key);
     return res.status(400).json({ message: "Code expired. Please resend." });
   }
-  if (String(code).trim() !== saved.code) return res.status(400).json({ message: "Invalid code" });
+  if (String(code).trim() !== saved.code) {
+    return res.status(400).json({ message: "Invalid code" });
+  }
 
   OTP_STORE.delete(key);
 
