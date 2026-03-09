@@ -106,6 +106,116 @@ const requirePositiveMoney = (v, fieldName = "amount") => {
   return n;
 };
 
+const escapeHtml = (v) =>
+  String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+const formatUGX = (n) => {
+  const num = Number(n);
+  if (!Number.isFinite(num)) return "UGX 0";
+  return `UGX ${num.toLocaleString()}`;
+};
+
+const getAdminOrderEmail = () =>
+  process.env.ADMIN_ORDER_EMAIL || "kupto2020@gmail.com";
+
+const generateAdminOrderNotificationHtml = (
+  order,
+  shippingInfo = {},
+  orderItems = [],
+  totalPrice = 0,
+  paymentInfo = {},
+  note = ""
+) => {
+  const paymentMethod = escapeHtml(paymentInfo?.paymentMethod || "Not specified");
+  const payStatus = escapeHtml(paymentInfo?.status || "Pending");
+
+  const itemsHtml = (Array.isArray(orderItems) ? orderItems : [])
+    .map((item) => {
+      const productTitle = escapeHtml(
+        item?.product?.title || item?.product?.name || "Product"
+      );
+      const qty = Number(item?.quantity || 1);
+      const unitPrice = formatUGX(item?.unitPrice || 0);
+      const colorLabel = escapeHtml(
+        item?.color?.title || item?.color?.name || item?.color || "Not specified"
+      );
+      const sizeLabel = escapeHtml(
+        item?.size?.title || item?.size?.name || item?.size || "Not specified"
+      );
+      const instruction = escapeHtml(item?.instruction || "None");
+
+      return `
+        <tr>
+          <td style="padding:10px; border:1px solid #eee;">${productTitle}</td>
+          <td style="padding:10px; border:1px solid #eee; text-align:center;">${qty}</td>
+          <td style="padding:10px; border:1px solid #eee;">${escapeHtml(unitPrice)}</td>
+          <td style="padding:10px; border:1px solid #eee;">${colorLabel}</td>
+          <td style="padding:10px; border:1px solid #eee;">${sizeLabel}</td>
+          <td style="padding:10px; border:1px solid #eee;">${instruction}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  return `
+    <div style="font-family: Arial, Helvetica, sans-serif; color:#111; max-width: 760px; margin: 0 auto; padding: 18px;">
+      <div style="padding: 18px; border: 1px solid #eee; border-radius: 12px;">
+        <h1 style="margin: 0 0 12px; font-size: 22px;">New Order Received</h1>
+
+        <div style="font-size: 13px; color:#222; line-height:1.8;">
+          <div><strong>Order ID:</strong> ${escapeHtml(order?._id || "")}</div>
+          <div><strong>Customer:</strong> ${escapeHtml(shippingInfo?.firstName || "")} ${escapeHtml(
+    shippingInfo?.lastName || ""
+  )}</div>
+          <div><strong>Email:</strong> ${escapeHtml(shippingInfo?.email || "")}</div>
+          <div><strong>Phone:</strong> ${escapeHtml(shippingInfo?.phone || "")}</div>
+          <div><strong>Address:</strong> ${escapeHtml(
+            shippingInfo?.address || ""
+          )}, ${escapeHtml(shippingInfo?.region || "")}${
+    shippingInfo?.subRegion ? `, ${escapeHtml(shippingInfo.subRegion)}` : ""
+  }</div>
+          <div><strong>Payment Method:</strong> ${paymentMethod}</div>
+          <div><strong>Payment Status:</strong> ${payStatus}</div>
+          <div><strong>Total Amount:</strong> ${escapeHtml(formatUGX(totalPrice))}</div>
+          ${
+            note
+              ? `<div><strong>Customer Note:</strong> ${escapeHtml(note)}</div>`
+              : ""
+          }
+        </div>
+
+        <hr style="border:none; border-top:1px solid #eee; margin: 16px 0;" />
+
+        <h3 style="margin: 0 0 10px; font-size: 16px;">Ordered Items</h3>
+
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead>
+            <tr style="background:#fafafa;">
+              <th style="padding:10px; border:1px solid #eee; text-align:left;">Product</th>
+              <th style="padding:10px; border:1px solid #eee; text-align:center;">Qty</th>
+              <th style="padding:10px; border:1px solid #eee; text-align:left;">Unit Price</th>
+              <th style="padding:10px; border:1px solid #eee; text-align:left;">Color</th>
+              <th style="padding:10px; border:1px solid #eee; text-align:left;">Size</th>
+              <th style="padding:10px; border:1px solid #eee; text-align:left;">Instruction</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              itemsHtml ||
+              `<tr><td colspan="6" style="padding:10px; border:1px solid #eee; color:#777;">No items found.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+};
+
 /* =========================================================
    ✅ AUTH
 ========================================================= */
@@ -735,20 +845,6 @@ const generateReceiptHtml = (
   totalPrice = 0,
   paymentInfo = {}
 ) => {
-  const escapeHtml = (v) =>
-    String(v ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-
-  const formatUGX = (n) => {
-    const num = Number(n);
-    if (!Number.isFinite(num)) return "UGX 0";
-    return `UGX ${num.toLocaleString()}`;
-  };
-
   const getProductTitle = (prod) => {
     if (!prod) return "Product";
     if (typeof prod === "object") return prod.title || prod.name || "Product";
@@ -994,8 +1090,10 @@ const createOrder = asyncHandler(async (req, res) => {
       .status(400)
       .json({ message: "shippingInfo is missing required fields" });
   }
+
   if (!safeShipping.phone)
     return res.status(400).json({ message: "shippingInfo.phone is required" });
+
   if (!safeShipping.email)
     return res.status(400).json({ message: "shippingInfo.email is required" });
 
@@ -1039,6 +1137,7 @@ const createOrder = asyncHandler(async (req, res) => {
       return res
         .status(400)
         .json({ message: "PayPal Order ID is required" });
+
     safePaymentInfo.paypalOrderID = String(paypalOrderID);
     safePaymentInfo.paypalCaptureID = paypalCaptureID ? String(paypalCaptureID) : null;
     safePaymentInfo.paypalPayerID = paypalPayerID ? String(paypalPayerID) : null;
@@ -1088,6 +1187,7 @@ const createOrder = asyncHandler(async (req, res) => {
   if (itemsTotal != null && Math.abs(toMoney(itemsTotal) - computedItemsTotal) > 0.01) {
     return res.status(400).json({ message: "itemsTotal mismatch" });
   }
+
   if (totalPrice != null && Math.abs(toMoney(totalPrice) - computedTotalPrice) > 0.01) {
     return res.status(400).json({ message: "totalPrice mismatch" });
   }
@@ -1115,31 +1215,52 @@ const createOrder = asyncHandler(async (req, res) => {
   });
 
   const receiptTo = (await User.findById(userId).select("email"))?.email || null;
+  const adminEmail = getAdminOrderEmail();
 
-  if (receiptTo) {
-    try {
-      const fullOrder = await Order.findById(order._id)
-        .populate("orderItems.product")
-        .populate("orderItems.color")
-        .populate("orderItems.size");
+  try {
+    const fullOrder = await Order.findById(order._id)
+      .populate("orderItems.product")
+      .populate("orderItems.color")
+      .populate("orderItems.size")
+      .populate("user");
 
-      const receiptHtml = generateReceiptHtml(
-        fullOrder || order,
-        safeShipping,
-        (fullOrder || order)?.orderItems || safeOrderItems,
-        computedTotalPrice,
-        safePaymentInfo
-      );
+    const populatedOrder = fullOrder || order;
+    const populatedItems = populatedOrder?.orderItems || safeOrderItems;
 
+    const receiptHtml = generateReceiptHtml(
+      populatedOrder,
+      safeShipping,
+      populatedItems,
+      computedTotalPrice,
+      safePaymentInfo
+    );
+
+    if (receiptTo) {
       await sendEmail({
         to: receiptTo,
         subject: "Your Order Receipt",
         text: "Thank you for your purchase! Please find your receipt below.",
         html: receiptHtml,
       });
-    } catch (e) {
-      console.error("Receipt email failed:", e);
     }
+
+    await sendEmail({
+      to: adminEmail,
+      subject: `New Order Received - ${order._id}`,
+      text: `A new order has been placed by ${safeShipping.firstName} ${safeShipping.lastName}. Total: ${formatUGX(
+        computedTotalPrice
+      )}. Payment Method: ${safePaymentInfo.paymentMethod}.`,
+      html: generateAdminOrderNotificationHtml(
+        populatedOrder,
+        safeShipping,
+        populatedItems,
+        computedTotalPrice,
+        safePaymentInfo,
+        note
+      ),
+    });
+  } catch (e) {
+    console.error("Order email sending failed:", e);
   }
 
   return res.status(201).json({ success: true, order });
