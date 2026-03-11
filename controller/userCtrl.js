@@ -196,10 +196,12 @@ const hasRefreshToken = (user, token) => {
   return String(user.refreshToken || "") === target;
 };
 
+
+
 const findUserByRefreshToken = async (token) => {
   const found = await User.findOne({
     $or: [{ refreshTokens: token }, { refreshToken: token }],
-  });
+  }).select("+refreshToken");
 
   return found;
 };
@@ -591,7 +593,8 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
   }
 
   try {
-    const refreshSecret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
+    
+    const refreshSecret = process.env.JWT_REFRESH_SECRET;
     if (!refreshSecret) {
       res.status(500);
       throw new Error("JWT refresh secret is missing on server");
