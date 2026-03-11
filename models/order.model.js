@@ -34,10 +34,10 @@ const orderItemSchema = new mongoose.Schema(
 
     quantity: { type: Number, required: true, min: 1 },
 
-    // ✅ Store the exact unit price you used at checkout (product + print unit)
+    // ✅ Exact unit price used at checkout (product + print unit)
     unitPrice: { type: Number, required: true, min: 0 },
 
-    // ✅ Optional print breakdown (for printing products)
+    // ✅ Optional print breakdown
     printUnitPrice: { type: Number, default: 0, min: 0 },
     printPricingTitle: { type: String, default: null, trim: true },
     printSide: {
@@ -53,21 +53,21 @@ const orderItemSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
-    // ✅ Allow guest checkout (user can be null)
+    // ✅ Logged-in user optional
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
     },
 
-    // ✅ Guest identity (optional, but useful for orders without user)
+    // ✅ Guest info for guest checkout
     guestInfo: {
       fullName: { type: String, trim: true, default: null },
       phone: { type: String, trim: true, default: null },
       email: { type: String, trim: true, lowercase: true, default: null },
     },
 
-    // ✅ Shipping + contact info (required for all orders)
+    // ✅ Shipping + contact info
     shippingInfo: {
       firstName: { type: String, required: true, trim: true },
       lastName: { type: String, required: true, trim: true },
@@ -77,15 +77,23 @@ const orderSchema = new mongoose.Schema(
 
       address: { type: String, required: true, trim: true },
       region: { type: String, required: true, trim: true },
-      // ✅ optional
       subRegion: { type: String, trim: true, default: "" },
+
+      // ✅ Optional delivery helper fields
+      deliveryMethod: {
+        type: String,
+        enum: ["delivery", "pickup"],
+        default: "delivery",
+        trim: true,
+      },
+      pickupStation: { type: String, trim: true, default: "" },
     },
 
     paymentInfo: {
-      // ✅ Normalized methods
+      // ✅ Updated to your 3 frontend payment methods
       paymentMethod: {
         type: String,
-        enum: ["cashOnDelivery", "mobileMoney", "card", "paypal"],
+        enum: ["cashOnDelivery", "airtelMoney", "mtnMomo"],
         required: true,
         trim: true,
       },
@@ -97,23 +105,14 @@ const orderSchema = new mongoose.Schema(
         trim: true,
       },
 
-      // ✅ PayPal fields (conditionally required)
-      paypalOrderID: {
-        type: String,
-        default: null,
-        required: function () {
-          return this.paymentMethod === "paypal";
-        },
-      },
-      paypalCaptureID: { type: String, default: null },
-      paypalPayerID: { type: String, default: null },
-
-      // ✅ Mobile money fields (optional)
+      // ✅ Mobile money provider auto-maps to Airtel / MTN when needed
       provider: {
         type: String,
         enum: ["MTN", "Airtel", null],
         default: null,
       },
+
+      // ✅ Optional mobile money transaction reference
       transactionId: { type: String, default: null, trim: true },
     },
 
@@ -141,7 +140,7 @@ const orderSchema = new mongoose.Schema(
     cancelReason: { type: String, default: null, trim: true },
     cancelledBy: { type: String, enum: ["user", "admin"], default: null },
 
-    // ✅ Month tracking (kept)
+    // ✅ Month tracking
     month: {
       type: Number,
       min: 1,
@@ -149,7 +148,7 @@ const orderSchema = new mongoose.Schema(
       default: () => new Date().getMonth() + 1,
     },
 
-    // ✅ Order status (kept)
+    // ✅ Order status
     orderStatus: {
       type: String,
       enum: ["Ordered", "Shipped", "Delivered", "Cancelled"],
@@ -160,7 +159,7 @@ const orderSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// ✅ Enforce month based on createdAt (kept)
+// ✅ Enforce month from createdAt
 orderSchema.pre("save", function (next) {
   if (this.isNew && this.createdAt) {
     this.month = new Date(this.createdAt).getMonth() + 1;
@@ -168,7 +167,21 @@ orderSchema.pre("save", function (next) {
   next();
 });
 
-// ✅ Safety validation: must be either logged-in user OR have guest info contact
+// ✅ Auto-map provider from selected payment method
+orderSchema.pre("validate", function (next) {
+  if (this.paymentInfo?.paymentMethod === "airtelMoney") {
+    this.paymentInfo.provider = "Airtel";
+  } else if (this.paymentInfo?.paymentMethod === "mtnMomo") {
+    this.paymentInfo.provider = "MTN";
+  } else if (this.paymentInfo?.paymentMethod === "cashOnDelivery") {
+    this.paymentInfo.provider = null;
+    this.paymentInfo.transactionId = null;
+  }
+
+  next();
+});
+
+// ✅ Safety validation: either logged-in user OR guest contact must exist
 orderSchema.pre("validate", function (next) {
   if (!this.user) {
     const g = this.guestInfo || {};
@@ -180,6 +193,22 @@ orderSchema.pre("validate", function (next) {
       );
     }
   }
+  next();
+});
+
+// ✅ Pickup validation
+orderSchema.pre("validate", function (next) {
+  const shipping = this.shippingInfo || {};
+
+  if (shipping.deliveryMethod === "pickup") {
+    if (!String(shipping.pickupStation || "").trim()) {
+      this.invalidate(
+        "shippingInfo.pickupStation",
+        "Pickup station is required when delivery method is pickup."
+      );
+    }
+  }
+
   next();
 });
 

@@ -96,10 +96,10 @@ const toMoney = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-const requirePositiveMoney = (v, fieldName = "amount") => {
+const requireNonNegativeMoney = (v, fieldName = "amount") => {
   const n = Number(v);
-  if (!Number.isFinite(n) || n <= 0) {
-    const err = new Error(`${fieldName} must be a positive number`);
+  if (!Number.isFinite(n) || n < 0) {
+    const err = new Error(`${fieldName} must be a valid non-negative number`);
     err.statusCode = 400;
     throw err;
   }
@@ -122,6 +122,23 @@ const formatUGX = (n) => {
 
 const getAdminOrderEmail = () =>
   process.env.ADMIN_ORDER_EMAIL || "kupto2020@gmail.com";
+
+const PAYMENT_METHODS = ["cashOnDelivery", "airtelMoney", "mtnMomo"];
+
+const getPaymentMethodLabel = (method = "") => {
+  const m = String(method || "").trim();
+  if (m === "cashOnDelivery") return "Cash on Delivery";
+  if (m === "airtelMoney") return "Airtel Money";
+  if (m === "mtnMomo") return "MTN MoMo";
+  return m || "Not specified";
+};
+
+const getMobileMoneyProviderFromMethod = (method = "") => {
+  const m = String(method || "").trim();
+  if (m === "airtelMoney") return "Airtel";
+  if (m === "mtnMomo") return "MTN";
+  return null;
+};
 
 /* =========================================================
    ✅ REFRESH TOKEN HELPERS (MULTI-DEVICE SAFE)
@@ -151,7 +168,6 @@ const addRefreshTokenToUser = (user, token) => {
   const existing = getUserRefreshTokens(user).filter((t) => t !== String(token));
   existing.push(String(token));
 
-  // Keep only the most recent N sessions
   const trimmed =
     existing.length > MAX_REFRESH_TOKENS_PER_USER
       ? existing.slice(existing.length - MAX_REFRESH_TOKENS_PER_USER)
@@ -159,7 +175,6 @@ const addRefreshTokenToUser = (user, token) => {
 
   setUserRefreshTokens(user, trimmed);
 
-  // clear legacy single token field if it exists
   if ("refreshToken" in user) user.refreshToken = "";
 };
 
@@ -167,7 +182,6 @@ const removeRefreshTokenFromUser = (user, token) => {
   const remaining = getUserRefreshTokens(user).filter((t) => t !== String(token));
   setUserRefreshTokens(user, remaining);
 
-  // clear legacy single token field if it matches
   if (String(user.refreshToken || "") === String(token)) {
     user.refreshToken = "";
   }
@@ -179,7 +193,6 @@ const hasRefreshToken = (user, token) => {
 
   if (getUserRefreshTokens(user).includes(target)) return true;
 
-  // legacy fallback
   return String(user.refreshToken || "") === target;
 };
 
@@ -217,8 +230,16 @@ const generateAdminOrderNotificationHtml = (
   paymentInfo = {},
   note = ""
 ) => {
-  const paymentMethod = escapeHtml(paymentInfo?.paymentMethod || "Not specified");
+  const paymentMethod = escapeHtml(
+    getPaymentMethodLabel(paymentInfo?.paymentMethod || "")
+  );
   const payStatus = escapeHtml(paymentInfo?.status || "Pending");
+  const provider = paymentInfo?.provider
+    ? escapeHtml(paymentInfo.provider)
+    : "";
+  const transactionId = paymentInfo?.transactionId
+    ? escapeHtml(paymentInfo.transactionId)
+    : "";
 
   const itemsHtml = (Array.isArray(orderItems) ? orderItems : [])
     .map((item) => {
@@ -234,6 +255,13 @@ const generateAdminOrderNotificationHtml = (
         item?.size?.title || item?.size?.name || item?.size || "Not specified"
       );
       const instruction = escapeHtml(item?.instruction || "None");
+      const printPricingTitle = escapeHtml(item?.printPricingTitle || "");
+      const printSide =
+        item?.printSide === "oneSide"
+          ? "One-side"
+          : item?.printSide === "twoSide"
+          ? "Two-side"
+          : "";
 
       return `
         <tr>
@@ -242,7 +270,18 @@ const generateAdminOrderNotificationHtml = (
           <td style="padding:10px; border:1px solid #eee;">${escapeHtml(unitPrice)}</td>
           <td style="padding:10px; border:1px solid #eee;">${colorLabel}</td>
           <td style="padding:10px; border:1px solid #eee;">${sizeLabel}</td>
-          <td style="padding:10px; border:1px solid #eee;">${instruction}</td>
+          <td style="padding:10px; border:1px solid #eee;">
+            ${instruction}
+            ${
+              printPricingTitle || printSide
+                ? `<div style="margin-top:6px; color:#666;">
+                     <strong>Print:</strong> ${printPricingTitle || "—"}${
+                    printSide ? ` • ${escapeHtml(printSide)}` : ""
+                  }
+                   </div>`
+                : ""
+            }
+          </td>
         </tr>
       `;
     })
@@ -255,9 +294,9 @@ const generateAdminOrderNotificationHtml = (
 
         <div style="font-size: 13px; color:#222; line-height:1.8;">
           <div><strong>Order ID:</strong> ${escapeHtml(order?._id || "")}</div>
-          <div><strong>Customer:</strong> ${escapeHtml(shippingInfo?.firstName || "")} ${escapeHtml(
-    shippingInfo?.lastName || ""
-  )}</div>
+          <div><strong>Customer:</strong> ${escapeHtml(
+            shippingInfo?.firstName || ""
+          )} ${escapeHtml(shippingInfo?.lastName || "")}</div>
           <div><strong>Email:</strong> ${escapeHtml(shippingInfo?.email || "")}</div>
           <div><strong>Phone:</strong> ${escapeHtml(shippingInfo?.phone || "")}</div>
           <div><strong>Address:</strong> ${escapeHtml(
@@ -265,8 +304,24 @@ const generateAdminOrderNotificationHtml = (
           )}, ${escapeHtml(shippingInfo?.region || "")}${
     shippingInfo?.subRegion ? `, ${escapeHtml(shippingInfo.subRegion)}` : ""
   }</div>
+          <div><strong>Delivery Method:</strong> ${escapeHtml(
+            shippingInfo?.deliveryMethod === "pickup" ? "Pick Up" : "Delivery"
+          )}</div>
+          ${
+            shippingInfo?.pickupStation
+              ? `<div><strong>Pick Up Station:</strong> ${escapeHtml(
+                  shippingInfo.pickupStation
+                )}</div>`
+              : ""
+          }
           <div><strong>Payment Method:</strong> ${paymentMethod}</div>
           <div><strong>Payment Status:</strong> ${payStatus}</div>
+          ${provider ? `<div><strong>Provider:</strong> ${provider}</div>` : ""}
+          ${
+            transactionId
+              ? `<div><strong>Transaction ID:</strong> ${transactionId}</div>`
+              : ""
+          }
           <div><strong>Total Amount:</strong> ${escapeHtml(formatUGX(totalPrice))}</div>
           ${
             note
@@ -421,7 +476,6 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
   const cleanEmail = normalizeEmail(email);
   let user = await User.findOne({ email: cleanEmail });
 
-  // If new Google user, require profile completion
   if (!user) {
     const parts = String(fullName).trim().split(" ");
     const firstname = parts[0] || "Kupto";
@@ -520,7 +574,7 @@ const loginAdmin = asyncHandler(async (req, res) => {
   res.json(sessionPayload);
 });
 
-// ✅ HANDLE REFRESH TOKEN (rotates only the current device token)
+// ✅ HANDLE REFRESH TOKEN
 const handleRefreshToken = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
   if (!cookie?.refreshToken) {
@@ -550,7 +604,6 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
       throw new Error("There is something wrong with the refresh token");
     }
 
-    // rotate only THIS token, not all sessions
     removeRefreshTokenFromUser(user, refreshToken);
 
     const newRefreshToken = generateRefreshToken(user._id);
@@ -563,7 +616,6 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
     const accessToken = generateToken(user._id);
     res.json({ token: accessToken, accessToken });
   } catch (err) {
-    // remove bad token from DB so it cannot keep failing
     removeRefreshTokenFromUser(user, refreshToken);
     await user.save();
 
@@ -573,7 +625,7 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
   }
 });
 
-// ✅ LOGOUT (remove only current device token)
+// ✅ LOGOUT
 const logout = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
   if (!cookie?.refreshToken) return res.sendStatus(204);
@@ -934,18 +986,20 @@ const generateReceiptHtml = (
   const address = escapeHtml(shippingInfo?.address || "Not provided");
   const region = escapeHtml(shippingInfo?.region || "Not provided");
   const subRegion = escapeHtml(shippingInfo?.subRegion || "");
+  const deliveryMethod = escapeHtml(
+    shippingInfo?.deliveryMethod === "pickup" ? "Pick Up Station" : "Delivery"
+  );
+  const pickupStation = escapeHtml(shippingInfo?.pickupStation || "");
 
-  const paymentMethod = escapeHtml(paymentInfo?.paymentMethod || "Not specified");
+  const paymentMethod = escapeHtml(
+    getPaymentMethodLabel(paymentInfo?.paymentMethod || "")
+  );
   const payStatus = escapeHtml(paymentInfo?.status || "Pending");
-
-  const paypalOrderID = paymentInfo?.paypalOrderID
-    ? escapeHtml(paymentInfo.paypalOrderID)
+  const provider = paymentInfo?.provider
+    ? escapeHtml(paymentInfo.provider)
     : "";
-  const paypalCaptureID = paymentInfo?.paypalCaptureID
-    ? escapeHtml(paymentInfo.paypalCaptureID)
-    : "";
-  const paypalPayerID = paymentInfo?.paypalPayerID
-    ? escapeHtml(paymentInfo.paypalPayerID)
+  const transactionId = paymentInfo?.transactionId
+    ? escapeHtml(paymentInfo.transactionId)
     : "";
 
   const itemsHtml = (Array.isArray(orderItems) ? orderItems : [])
@@ -962,6 +1016,13 @@ const generateReceiptHtml = (
       const sizeLabel = escapeHtml(getVariantLabel(item?.size) || "Not specified");
       const colorLabel = escapeHtml(getVariantLabel(item?.color) || "Not specified");
       const instruction = escapeHtml(item?.instruction || "None");
+      const printPricingTitle = escapeHtml(item?.printPricingTitle || "");
+      const printSide =
+        item?.printSide === "oneSide"
+          ? "One-side"
+          : item?.printSide === "twoSide"
+          ? "Two-side"
+          : "";
 
       const uploadedFiles = Array.isArray(item?.uploadedFiles) ? item.uploadedFiles : [];
 
@@ -1012,6 +1073,13 @@ const generateReceiptHtml = (
                 <div><strong>Size:</strong> ${sizeLabel}</div>
                 <div><strong>Color:</strong> ${colorLabel}</div>
                 <div><strong>Instructions:</strong> ${instruction}</div>
+                ${
+                  printPricingTitle || printSide
+                    ? `<div><strong>Printing:</strong> ${printPricingTitle || "—"}${
+                        printSide ? ` • ${escapeHtml(printSide)}` : ""
+                      }</div>`
+                    : ""
+                }
               </div>
 
               ${filesHtml}
@@ -1021,17 +1089,6 @@ const generateReceiptHtml = (
       `;
     })
     .join("");
-
-  const paypalExtra =
-    String(paymentInfo?.paymentMethod || "").toLowerCase() === "paypal"
-      ? `
-          <div style="margin-top:10px; font-size:13px; color:#222; line-height:1.7;">
-            ${paypalOrderID ? `<div><strong>PayPal Order ID:</strong> ${paypalOrderID}</div>` : ""}
-            ${paypalCaptureID ? `<div><strong>PayPal Capture ID:</strong> ${paypalCaptureID}</div>` : ""}
-            ${paypalPayerID ? `<div><strong>PayPal Payer ID:</strong> ${paypalPayerID}</div>` : ""}
-          </div>
-        `
-      : "";
 
   return `
     <div style="font-family: Arial, Helvetica, sans-serif; color:#111; max-width: 720px; margin: 0 auto; padding: 18px;">
@@ -1050,9 +1107,15 @@ const generateReceiptHtml = (
           <div><strong>Name:</strong> ${firstName} ${lastName}</div>
           ${phone ? `<div><strong>Phone:</strong> ${phone}</div>` : ""}
           ${email ? `<div><strong>Email:</strong> ${email}</div>` : ""}
+          <div><strong>Delivery Method:</strong> ${deliveryMethod}</div>
+          ${
+            pickupStation
+              ? `<div><strong>Pick Up Station:</strong> ${pickupStation}</div>`
+              : ""
+          }
           <div><strong>Address:</strong> ${address}, ${region}${
-            subRegion ? `, ${subRegion}` : ""
-          }</div>
+    subRegion ? `, ${subRegion}` : ""
+  }</div>
         </div>
 
         <hr style="border:none; border-top:1px solid #eee; margin: 14px 0;" />
@@ -1068,7 +1131,12 @@ const generateReceiptHtml = (
           <div style="font-size: 13px; color:#222; line-height:1.7;">
             <div><strong>Payment Method:</strong> ${paymentMethod}</div>
             <div><strong>Payment Status:</strong> ${payStatus}</div>
-            ${paypalExtra}
+            ${provider ? `<div><strong>Provider:</strong> ${provider}</div>` : ""}
+            ${
+              transactionId
+                ? `<div><strong>Transaction ID:</strong> ${transactionId}</div>`
+                : ""
+            }
           </div>
 
           <div style="text-align:right; min-width: 220px;">
@@ -1106,8 +1174,9 @@ const createOrder = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
   if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
-  if (!shippingInfo)
+  if (!shippingInfo) {
     return res.status(400).json({ message: "shippingInfo is required" });
+  }
 
   if (!Array.isArray(orderItems) || orderItems.length === 0) {
     return res
@@ -1119,6 +1188,11 @@ const createOrder = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "paymentInfo is required" });
   }
 
+  const deliveryMethod =
+    String(shippingInfo.deliveryMethod || "").trim() === "pickup"
+      ? "pickup"
+      : "delivery";
+
   const safeShipping = {
     firstName: String(shippingInfo.firstName || "").trim(),
     lastName: String(shippingInfo.lastName || "").trim(),
@@ -1129,70 +1203,74 @@ const createOrder = asyncHandler(async (req, res) => {
     address: String(shippingInfo.address || "").trim(),
     region: String(shippingInfo.region || "").trim(),
     subRegion: String(shippingInfo.subRegion || "").trim(),
+    deliveryMethod,
+    pickupStation: String(shippingInfo.pickupStation || "").trim(),
   };
 
-  if (
-    !safeShipping.firstName ||
-    !safeShipping.lastName ||
-    !safeShipping.address ||
-    !safeShipping.region
-  ) {
+  if (!safeShipping.firstName || !safeShipping.lastName) {
     return res
       .status(400)
-      .json({ message: "shippingInfo is missing required fields" });
+      .json({ message: "shippingInfo firstName and lastName are required" });
   }
 
-  if (!safeShipping.phone)
+  if (!safeShipping.phone) {
     return res.status(400).json({ message: "shippingInfo.phone is required" });
+  }
 
-  if (!safeShipping.email)
+  if (!safeShipping.email) {
     return res.status(400).json({ message: "shippingInfo.email is required" });
+  }
+
+  if (deliveryMethod === "pickup") {
+    if (!safeShipping.pickupStation) {
+      return res
+        .status(400)
+        .json({ message: "pickupStation is required for pickup orders" });
+    }
+
+    if (!safeShipping.address) {
+      safeShipping.address = safeShipping.pickupStation;
+    }
+
+    if (!safeShipping.region) {
+      safeShipping.region = "Pick Up Station";
+    }
+
+    if (!safeShipping.subRegion) {
+      safeShipping.subRegion = "";
+    }
+  } else {
+    if (!safeShipping.address || !safeShipping.region) {
+      return res
+        .status(400)
+        .json({ message: "shippingInfo is missing required delivery fields" });
+    }
+  }
 
   const paymentMethod = String(paymentInfo.paymentMethod || "").trim();
-  if (!paymentMethod)
+  if (!paymentMethod) {
     return res.status(400).json({ message: "Payment method is required" });
+  }
 
-  const allowedPayments = ["cashOnDelivery", "mobileMoney", "card", "paypal"];
-  if (!allowedPayments.includes(paymentMethod)) {
+  if (!PAYMENT_METHODS.includes(paymentMethod)) {
     return res.status(400).json({ message: "Invalid payment method" });
   }
 
-  const paypalOrderID =
-    paymentInfo.paypalOrderID ||
-    paymentInfo.orderID ||
-    paymentInfo.orderId ||
-    null;
-  const paypalCaptureID =
-    paymentInfo.paypalCaptureID ||
-    paymentInfo.captureID ||
-    paymentInfo.captureId ||
-    null;
-  const paypalPayerID =
-    paymentInfo.paypalPayerID ||
-    paymentInfo.payerID ||
-    paymentInfo.payerId ||
-    null;
+  const detectedProvider = getMobileMoneyProviderFromMethod(paymentMethod);
 
   const safePaymentInfo = {
     paymentMethod,
     status: paymentInfo.status || "Pending",
-    paypalOrderID: null,
-    paypalCaptureID: null,
-    paypalPayerID: null,
-    provider: paymentInfo.provider || null,
-    transactionId: paymentInfo.transactionId || null,
+    provider:
+      detectedProvider ||
+      (paymentInfo.provider ? String(paymentInfo.provider).trim() : null),
+    transactionId:
+      paymentMethod === "cashOnDelivery"
+        ? null
+        : paymentInfo.transactionId
+        ? String(paymentInfo.transactionId).trim()
+        : null,
   };
-
-  if (paymentMethod === "paypal") {
-    if (!paypalOrderID)
-      return res
-        .status(400)
-        .json({ message: "PayPal Order ID is required" });
-
-    safePaymentInfo.paypalOrderID = String(paypalOrderID);
-    safePaymentInfo.paypalCaptureID = paypalCaptureID ? String(paypalCaptureID) : null;
-    safePaymentInfo.paypalPayerID = paypalPayerID ? String(paypalPayerID) : null;
-  }
 
   let computedItemsTotal = 0;
 
@@ -1206,7 +1284,7 @@ const createOrder = asyncHandler(async (req, res) => {
     validateMongoDbId(prodId);
 
     const qty = Math.max(1, Number(it.quantity || 1));
-    const unitPrice = requirePositiveMoney(
+    const unitPrice = requireNonNegativeMoney(
       it.unitPrice,
       `orderItems[${idx}].unitPrice`
     );
@@ -1217,6 +1295,10 @@ const createOrder = asyncHandler(async (req, res) => {
     if (colorId) validateMongoDbId(colorId);
     if (sizeId) validateMongoDbId(sizeId);
 
+    const printSide = String(it.printSide || "").trim();
+    const normalizedPrintSide =
+      printSide === "oneSide" || printSide === "twoSide" ? printSide : "";
+
     return {
       product: prodId,
       color: colorId || null,
@@ -1224,9 +1306,9 @@ const createOrder = asyncHandler(async (req, res) => {
       uploadedFiles: Array.isArray(it.uploadedFiles) ? it.uploadedFiles : [],
       quantity: qty,
       unitPrice,
-      printUnitPrice: toMoney(it.printUnitPrice || 0),
-      printPricingTitle: it.printPricingTitle || null,
-      printSide: it.printSide || "",
+      printUnitPrice: Math.max(0, toMoney(it.printUnitPrice || 0)),
+      printPricingTitle: it.printPricingTitle ? String(it.printPricingTitle).trim() : null,
+      printSide: normalizedPrintSide,
       instruction: it.instruction ?? null,
     };
   });
@@ -1300,7 +1382,7 @@ const createOrder = asyncHandler(async (req, res) => {
       subject: `New Order Received - ${order._id}`,
       text: `A new order has been placed by ${safeShipping.firstName} ${safeShipping.lastName}. Total: ${formatUGX(
         computedTotalPrice
-      )}. Payment Method: ${safePaymentInfo.paymentMethod}.`,
+      )}. Payment Method: ${getPaymentMethodLabel(safePaymentInfo.paymentMethod)}.`,
       html: generateAdminOrderNotificationHtml(
         populatedOrder,
         safeShipping,
@@ -1496,7 +1578,6 @@ const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
     message: "Verification code generated. (SMS sending not configured yet)",
     type,
     normalized,
-    // ⚠️ remove in production
     debugCode: code,
   });
 });
@@ -1785,4 +1866,4 @@ module.exports = {
   // cancellation
   cancelMyOrder,
   cancelOrderAdmin,
-};
+}; 
