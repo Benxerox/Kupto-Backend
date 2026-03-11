@@ -12,20 +12,29 @@ const getUpdate = (ctx) => {
 };
 
 const getVal = (ctx, field) => {
-  // 1) Document context
-  if (ctx && Object.prototype.hasOwnProperty.call(ctx, field)) return ctx[field];
+  if (!ctx) return undefined;
+
+  // 1) Document context (important for create/save validation)
+  if (typeof ctx.get === "function") {
+    const docVal = ctx.get(field);
+    if (docVal !== undefined) return docVal;
+  }
+
+  // fallback direct access
+  if (ctx[field] !== undefined) return ctx[field];
 
   // 2) Query/update context
   const u = getUpdate(ctx);
   if (!u) return undefined;
 
   // direct
-  if (Object.prototype.hasOwnProperty.call(u, field)) return u[field];
+  if (u[field] !== undefined) return u[field];
 
   // $set / $setOnInsert
-  if (u.$set && Object.prototype.hasOwnProperty.call(u.$set, field)) return u.$set[field];
-  if (u.$setOnInsert && Object.prototype.hasOwnProperty.call(u.$setOnInsert, field))
+  if (u.$set && u.$set[field] !== undefined) return u.$set[field];
+  if (u.$setOnInsert && u.$setOnInsert[field] !== undefined) {
     return u.$setOnInsert[field];
+  }
 
   return undefined;
 };
@@ -74,11 +83,7 @@ const sizeSchema = new mongoose.Schema(
     },
 
     /* =====================
-       PRICING (UPDATED)
-       ✅ discountPrice allowed even when price is NULL.
-       - If price exists: discountPrice must be < price.
-       - If price is NULL: discountPrice is treated as absolute fixed price.
-       - discountMinQty requires discountPrice.
+       PRICING
     ===================== */
     price: {
       type: Number,
@@ -94,14 +99,14 @@ const sizeSchema = new mongoose.Schema(
         validator: function (v) {
           if (v === null || v === undefined) return true;
 
-          const price = getVal(this, "price"); // supports update context too
+          const price = getVal(this, "price");
 
           // if price is set, enforce discountPrice < price
           if (price !== null && price !== undefined) {
             return Number(v) < Number(price);
           }
 
-          // if price is NOT set, allow discountPrice (absolute)
+          // if price is not set, allow discountPrice as absolute value
           return true;
         },
         message: "discountPrice must be less than price (when price is set).",
@@ -116,9 +121,9 @@ const sizeSchema = new mongoose.Schema(
         validator: function (v) {
           if (v === null || v === undefined) return true;
 
-          const discountPrice = getVal(this, "discountPrice"); // supports update context too
+          const discountPrice = getVal(this, "discountPrice");
 
-          // if you set a min qty, you must set a discount price too
+          // if min qty is set, discountPrice must also be set
           return discountPrice !== null && discountPrice !== undefined;
         },
         message: "discountMinQty requires discountPrice to be set.",
