@@ -51,6 +51,7 @@ const normalizeImages = (images) => {
 
 /* =========================
    Bulk discount sub-schema
+   (TOP-LEVEL PRODUCT ONLY)
 ========================= */
 const bulkDiscountSchema = new mongoose.Schema(
   {
@@ -76,7 +77,16 @@ const imageSchema = new mongoose.Schema(
 
 /* =========================
    Color variant pricing schema
-   Each color can have its own price
+   Each color can have:
+   - optional own price
+   - optional own discountedPrice
+   - optional own discountMinQty
+   - optional own quantity
+   - optional own images
+
+   NOTE:
+   - No color-level bulkDiscount anymore
+   - If color price is null => fallback to product price
 ========================= */
 const colorVariantSchema = new mongoose.Schema(
   {
@@ -106,12 +116,6 @@ const colorVariantSchema = new mongoose.Schema(
       type: Number,
       default: null,
       min: 1,
-    },
-
-    // optional bulk pricing for this color
-    bulkDiscount: {
-      type: bulkDiscountSchema,
-      default: () => ({ minQty: null, price: null }),
     },
 
     // optional stock quantity per color
@@ -149,7 +153,7 @@ const productSchema = new mongoose.Schema(
        - price = base (normal) unit price
        - discountedPrice = SALE unit price (lower than price)
        - discountMinQty = qty at which discountedPrice activates
-       - bulkDiscount = another qty based pricing
+       - bulkDiscount = top-level product bulk pricing
     ========================= */
     price: { type: Number, required: true, min: 0 },
 
@@ -289,9 +293,10 @@ const productSchema = new mongoose.Schema(
      * Each selected color can have:
      * - its own price
      * - its own discount
-     * - its own bulk discount
      * - its own stock
      * - its own images
+     *
+     * No color-level bulk discount anymore.
      */
     colorVariants: {
       type: [colorVariantSchema],
@@ -346,6 +351,11 @@ productSchema.pre("validate", function (next) {
     this.bulkDiscount.price = toNumberOrNull(this.bulkDiscount.price);
   }
 
+  // normalize top-level images
+  if (Array.isArray(this.images)) {
+    this.images = normalizeImages(this.images);
+  }
+
   // keep colorVariants consistent with selected colors
   if (Array.isArray(this.colorVariants) && Array.isArray(this.color)) {
     const allowed = new Set(this.color.map(String));
@@ -357,10 +367,6 @@ productSchema.pre("validate", function (next) {
         price: toNumberOrNull(v.price),
         discountedPrice: toNumberOrNull(v.discountedPrice),
         discountMinQty: toNumberOrNull(v.discountMinQty),
-        bulkDiscount: {
-          minQty: toNumberOrNull(v?.bulkDiscount?.minQty),
-          price: toNumberOrNull(v?.bulkDiscount?.price),
-        },
         quantity: toNumberOrNull(v.quantity),
         images: normalizeImages(v.images),
       }));
@@ -390,9 +396,11 @@ productSchema.pre("validate", function (next) {
 
       if (v.discountedPrice !== null && v.discountedPrice !== undefined) {
         const d = Number(v.discountedPrice);
+
         if (Number.isNaN(d) || d < 0) {
           return next(new Error("Each color variant discountedPrice must be >= 0."));
         }
+
         if (!(d < variantPrice)) {
           return next(
             new Error("Each color variant discountedPrice must be less than its variant price.")
@@ -404,35 +412,10 @@ productSchema.pre("validate", function (next) {
         if (Number(v.discountMinQty) < 1) {
           return next(new Error("Each color variant discountMinQty must be >= 1."));
         }
+
         if (v.discountedPrice === null || v.discountedPrice === undefined) {
           return next(
             new Error("Each color variant discountMinQty requires discountedPrice to be set.")
-          );
-        }
-      }
-
-      const bdMin = v?.bulkDiscount?.minQty;
-      const bdPrice = v?.bulkDiscount?.price;
-
-      const hasBdMin = isPresent(bdMin);
-      const hasBdPrice = isPresent(bdPrice);
-
-      if (hasBdMin !== hasBdPrice) {
-        return next(
-          new Error("Each color variant bulkDiscount requires BOTH minQty and price.")
-        );
-      }
-
-      if (hasBdMin && hasBdPrice) {
-        if (Number(bdMin) < 1) {
-          return next(new Error("Each color variant bulkDiscount.minQty must be >= 1."));
-        }
-        if (Number(bdPrice) < 0) {
-          return next(new Error("Each color variant bulkDiscount.price must be >= 0."));
-        }
-        if (Number(bdPrice) > variantPrice) {
-          return next(
-            new Error("Each color variant bulkDiscount.price must be <= its variant price.")
           );
         }
       }
@@ -459,10 +442,11 @@ productSchema.pre("validate", function (next) {
  * Returns pricing source for a selected color
  * Falls back to product-level pricing if no color override exists
  *
- * Important fix:
- * If a variant has its own price, inherited product-level discountedPrice
- * and bulkDiscount.price are only used when they are still valid for that
- * variant price.
+ * Rules:
+ * - color price falls back to product price
+ * - color discountedPrice falls back to product discountedPrice
+ *   only if inherited discountedPrice is still valid for the final price
+ * - top-level bulkDiscount still applies, but only if valid for final price
  */
 productSchema.methods.getColorPricing = function (colorId) {
   const variant =
@@ -510,18 +494,9 @@ productSchema.methods.getColorPricing = function (colorId) {
       : null;
 
   const bulkPrice =
-    variant?.bulkDiscount?.price !== null && variant?.bulkDiscount?.price !== undefined
-      ? Number(variant.bulkDiscount.price)
-      : inheritedBulkPrice !== null && inheritedBulkPrice <= price
-      ? inheritedBulkPrice
-      : null;
+    inheritedBulkPrice !== null && inheritedBulkPrice <= price ? inheritedBulkPrice : null;
 
-  const bulkMinQty =
-    bulkPrice !== null
-      ? variant?.bulkDiscount?.minQty !== null && variant?.bulkDiscount?.minQty !== undefined
-        ? Number(variant.bulkDiscount.minQty)
-        : inheritedBulkMinQty
-      : null;
+  const bulkMinQty = bulkPrice !== null ? inheritedBulkMinQty : null;
 
   const quantity =
     variant?.quantity !== null && variant?.quantity !== undefined
@@ -561,7 +536,7 @@ productSchema.methods.getUnitPriceByQty = function (qty = 1, colorId = null) {
   const pricing = this.getColorPricing(colorId);
   const base = Number(pricing.price || 0);
 
-  // 1) bulkDiscount overrides
+  // 1) top-level bulkDiscount overrides
   const bdMin = pricing.bulkDiscount?.minQty;
   const bdPrice = pricing.bulkDiscount?.price;
   if (bdMin != null && bdPrice != null && q >= Number(bdMin)) {

@@ -14,14 +14,6 @@ const toNumberOrNull = (v) => {
   return Number.isFinite(n) ? n : NaN;
 };
 
-const pickNested = (obj, path) => {
-  try {
-    return path.split(".").reduce((acc, k) => (acc ? acc[k] : undefined), obj);
-  } catch {
-    return undefined;
-  }
-};
-
 const isPresent = (v) => v !== null && v !== undefined;
 
 const normalizeObjectIdArray = (arr) => {
@@ -39,6 +31,15 @@ const normalizeImages = (images) => {
     }));
 };
 
+const isValidationLikeError = (error) => {
+  return (
+    error?.name === "ValidationError" ||
+    error?.name === "CastError" ||
+    error?.name === "MongoServerError" ||
+    error?.code === 11000
+  );
+};
+
 /* =========================================
    Validate product-level pricing
 ========================================= */
@@ -54,6 +55,7 @@ const validatePricingPayload = ({ body, existing }) => {
       : toNumberOrNull(body.price);
 
   if (Number.isNaN(nextPrice)) return { ok: false, message: "Invalid price" };
+  if (nextPrice === null) return { ok: false, message: "Price is required" };
   if (nextPrice < 0) return { ok: false, message: "Price must be >= 0" };
 
   // -----------------------
@@ -62,11 +64,17 @@ const validatePricingPayload = ({ body, existing }) => {
   let nextDiscounted = existing?.discountedPrice ?? null;
 
   if (body.discountedPrice !== undefined) {
-    if (body.discountedPrice === "" || body.discountedPrice === null) nextDiscounted = null;
-    else nextDiscounted = toNumberOrNull(body.discountedPrice);
+    if (body.discountedPrice === "" || body.discountedPrice === null) {
+      nextDiscounted = null;
+    } else {
+      nextDiscounted = toNumberOrNull(body.discountedPrice);
+    }
   }
 
-  if (Number.isNaN(nextDiscounted)) return { ok: false, message: "Invalid discountedPrice" };
+  if (Number.isNaN(nextDiscounted)) {
+    return { ok: false, message: "Invalid discountedPrice" };
+  }
+
   if (nextDiscounted !== null && nextDiscounted < 0) {
     return { ok: false, message: "discountedPrice must be >= 0" };
   }
@@ -81,11 +89,17 @@ const validatePricingPayload = ({ body, existing }) => {
   let nextDiscountMinQty = existing?.discountMinQty ?? null;
 
   if (body.discountMinQty !== undefined) {
-    if (body.discountMinQty === "" || body.discountMinQty === null) nextDiscountMinQty = null;
-    else nextDiscountMinQty = toNumberOrNull(body.discountMinQty);
+    if (body.discountMinQty === "" || body.discountMinQty === null) {
+      nextDiscountMinQty = null;
+    } else {
+      nextDiscountMinQty = toNumberOrNull(body.discountMinQty);
+    }
   }
 
-  if (Number.isNaN(nextDiscountMinQty)) return { ok: false, message: "Invalid discountMinQty" };
+  if (Number.isNaN(nextDiscountMinQty)) {
+    return { ok: false, message: "Invalid discountMinQty" };
+  }
+
   if (nextDiscountMinQty !== null && nextDiscountMinQty < 1) {
     return { ok: false, message: "discountMinQty must be >= 1" };
   }
@@ -98,21 +112,23 @@ const validatePricingPayload = ({ body, existing }) => {
   // bulkDiscount
   // -----------------------
   const bdMinRaw =
-    pickNested(body, "bulkDiscount.minQty") !== undefined
-      ? pickNested(body, "bulkDiscount.minQty")
+    body?.bulkDiscount?.minQty !== undefined
+      ? body.bulkDiscount.minQty
       : existing
       ? existing?.bulkDiscount?.minQty
       : undefined;
 
   const bdPriceRaw =
-    pickNested(body, "bulkDiscount.price") !== undefined
-      ? pickNested(body, "bulkDiscount.price")
+    body?.bulkDiscount?.price !== undefined
+      ? body.bulkDiscount.price
       : existing
       ? existing?.bulkDiscount?.price
       : undefined;
 
   const bdMin =
-    bdMinRaw === "" || bdMinRaw === undefined || bdMinRaw === null ? null : toNumberOrNull(bdMinRaw);
+    bdMinRaw === "" || bdMinRaw === undefined || bdMinRaw === null
+      ? null
+      : toNumberOrNull(bdMinRaw);
 
   const bdPrice =
     bdPriceRaw === "" || bdPriceRaw === undefined || bdPriceRaw === null
@@ -136,6 +152,20 @@ const validatePricingPayload = ({ body, existing }) => {
       return { ok: false, message: "bulkDiscount.price must be <= price" };
     }
   }
+
+  // -----------------------
+  // quantity
+  // -----------------------
+  const nextQuantity =
+    body.quantity !== undefined
+      ? body.quantity === "" || body.quantity === null
+        ? null
+        : toNumberOrNull(body.quantity)
+      : existing?.quantity ?? null;
+
+  if (Number.isNaN(nextQuantity)) return { ok: false, message: "Invalid quantity" };
+  if (nextQuantity === null) return { ok: false, message: "Quantity is required" };
+  if (nextQuantity < 0) return { ok: false, message: "Quantity must be >= 0" };
 
   // -----------------------
   // minOrder / maxOrder
@@ -176,6 +206,7 @@ const validatePricingPayload = ({ body, existing }) => {
     nextDiscountMinQty,
     bdMin,
     bdPrice,
+    nextQuantity,
     nextMinOrder,
     nextMaxOrder,
   };
@@ -183,6 +214,7 @@ const validatePricingPayload = ({ body, existing }) => {
 
 /* =========================================
    Validate colorVariants pricing
+   No color-level bulkDiscount anymore
 ========================================= */
 const validateColorVariantsPayload = ({ body, existing }) => {
   const incomingColors =
@@ -206,7 +238,6 @@ const validateColorVariantsPayload = ({ body, existing }) => {
   const allowedColors = new Set(incomingColors);
   const seen = new Set();
 
-  // effective product price fallback
   const effectiveBasePrice =
     body.price !== undefined && body.price !== null && body.price !== ""
       ? toNumberOrNull(body.price)
@@ -245,6 +276,7 @@ const validateColorVariantsPayload = ({ body, existing }) => {
     if (Number.isNaN(variantPrice)) {
       return { ok: false, message: `Invalid color variant price for color ${colorId}` };
     }
+
     if (variantPrice < 0) {
       return { ok: false, message: `Color variant price must be >= 0 for color ${colorId}` };
     }
@@ -275,7 +307,9 @@ const validateColorVariantsPayload = ({ body, existing }) => {
     }
 
     const variantDiscountMinQty =
-      variant.discountMinQty === "" || variant.discountMinQty === undefined || variant.discountMinQty === null
+      variant.discountMinQty === "" ||
+      variant.discountMinQty === undefined ||
+      variant.discountMinQty === null
         ? null
         : toNumberOrNull(variant.discountMinQty);
 
@@ -298,58 +332,6 @@ const validateColorVariantsPayload = ({ body, existing }) => {
         ok: false,
         message: `Color variant discountMinQty requires discountedPrice for color ${colorId}`,
       };
-    }
-
-    const bdMinRaw = pickNested(variant, "bulkDiscount.minQty");
-    const bdPriceRaw = pickNested(variant, "bulkDiscount.price");
-
-    const bdMin =
-      bdMinRaw === "" || bdMinRaw === undefined || bdMinRaw === null ? null : toNumberOrNull(bdMinRaw);
-
-    const bdPrice =
-      bdPriceRaw === "" || bdPriceRaw === undefined || bdPriceRaw === null
-        ? null
-        : toNumberOrNull(bdPriceRaw);
-
-    if (Number.isNaN(bdMin)) {
-      return { ok: false, message: `Invalid color variant bulkDiscount.minQty for color ${colorId}` };
-    }
-
-    if (Number.isNaN(bdPrice)) {
-      return { ok: false, message: `Invalid color variant bulkDiscount.price for color ${colorId}` };
-    }
-
-    const hasBdMin = isPresent(bdMin);
-    const hasBdPrice = isPresent(bdPrice);
-
-    if (hasBdMin !== hasBdPrice) {
-      return {
-        ok: false,
-        message: `Color variant bulkDiscount requires BOTH minQty and price for color ${colorId}`,
-      };
-    }
-
-    if (hasBdMin && hasBdPrice) {
-      if (bdMin < 1) {
-        return {
-          ok: false,
-          message: `Color variant bulkDiscount.minQty must be >= 1 for color ${colorId}`,
-        };
-      }
-
-      if (bdPrice < 0) {
-        return {
-          ok: false,
-          message: `Color variant bulkDiscount.price must be >= 0 for color ${colorId}`,
-        };
-      }
-
-      if (Number(bdPrice) > Number(variantPrice)) {
-        return {
-          ok: false,
-          message: `Color variant bulkDiscount.price must be <= price for color ${colorId}`,
-        };
-      }
     }
 
     const qty =
@@ -379,9 +361,23 @@ const validateColorVariantsPayload = ({ body, existing }) => {
 const normalizeProductPayload = (body) => {
   const payload = { ...body };
 
-  if (payload.title) {
+  if (payload.title !== undefined && payload.title !== null) {
     payload.title = String(payload.title).trim();
-    payload.slug = slugify(payload.title, { lower: true, strict: true, trim: true });
+    if (payload.title) {
+      payload.slug = slugify(payload.title, {
+        lower: true,
+        strict: true,
+        trim: true,
+      });
+    }
+  }
+
+  if (payload.brand !== undefined && payload.brand !== null) {
+    payload.brand = String(payload.brand).trim();
+  }
+
+  if (payload.description !== undefined && payload.description !== null) {
+    payload.description = String(payload.description);
   }
 
   if (payload.color !== undefined) {
@@ -400,10 +396,29 @@ const normalizeProductPayload = (body) => {
     payload.images = normalizeImages(payload.images);
   }
 
-  if (payload.tags !== undefined && Array.isArray(payload.tags)) {
-    payload.tags = payload.tags
-      .map((tag) => String(tag).trim())
-      .filter(Boolean);
+  if (payload.tags !== undefined) {
+    payload.tags = Array.isArray(payload.tags)
+      ? payload.tags.map((tag) => String(tag).trim()).filter(Boolean)
+      : [];
+  }
+
+  if (payload.isPrintable !== undefined) {
+    payload.isPrintable =
+      payload.isPrintable === true ||
+      payload.isPrintable === "true" ||
+      payload.isPrintable === 1 ||
+      payload.isPrintable === "1";
+  }
+
+  if (payload.printingPrice !== undefined) {
+    payload.printingPrice =
+      payload.printingPrice === "" || payload.printingPrice === null
+        ? null
+        : String(payload.printingPrice);
+  }
+
+  if (payload.status !== undefined && payload.status !== null) {
+    payload.status = String(payload.status).trim();
   }
 
   if (payload.colorVariants !== undefined && Array.isArray(payload.colorVariants)) {
@@ -411,27 +426,48 @@ const normalizeProductPayload = (body) => {
       .filter((v) => v && v.color)
       .map((v) => ({
         color: String(v.color),
-        price: v.price === "" || v.price === undefined ? null : v.price,
+        price: v.price === "" || v.price === undefined || v.price === null ? null : v.price,
         discountedPrice:
-          v.discountedPrice === "" || v.discountedPrice === undefined ? null : v.discountedPrice,
+          v.discountedPrice === "" || v.discountedPrice === undefined || v.discountedPrice === null
+            ? null
+            : v.discountedPrice,
         discountMinQty:
-          v.discountMinQty === "" || v.discountMinQty === undefined ? null : v.discountMinQty,
-        bulkDiscount: {
-          minQty:
-            pickNested(v, "bulkDiscount.minQty") === "" ||
-            pickNested(v, "bulkDiscount.minQty") === undefined
-              ? null
-              : pickNested(v, "bulkDiscount.minQty"),
-          price:
-            pickNested(v, "bulkDiscount.price") === "" ||
-            pickNested(v, "bulkDiscount.price") === undefined
-              ? null
-              : pickNested(v, "bulkDiscount.price"),
-        },
-        quantity: v.quantity === "" || v.quantity === undefined ? null : v.quantity,
+          v.discountMinQty === "" || v.discountMinQty === undefined || v.discountMinQty === null
+            ? null
+            : v.discountMinQty,
+        quantity:
+          v.quantity === "" || v.quantity === undefined || v.quantity === null ? null : v.quantity,
         images: normalizeImages(v.images),
       }));
   }
+
+  if (payload.bulkDiscount !== undefined) {
+    payload.bulkDiscount = {
+      minQty:
+        payload.bulkDiscount?.minQty === "" ||
+        payload.bulkDiscount?.minQty === undefined ||
+        payload.bulkDiscount?.minQty === null
+          ? null
+          : payload.bulkDiscount.minQty,
+      price:
+        payload.bulkDiscount?.price === "" ||
+        payload.bulkDiscount?.price === undefined ||
+        payload.bulkDiscount?.price === null
+          ? null
+          : payload.bulkDiscount.price,
+    };
+  }
+
+  if (payload.price !== undefined && payload.price === "") payload.price = null;
+  if (payload.discountedPrice !== undefined && payload.discountedPrice === "") {
+    payload.discountedPrice = null;
+  }
+  if (payload.discountMinQty !== undefined && payload.discountMinQty === "") {
+    payload.discountMinQty = null;
+  }
+  if (payload.quantity !== undefined && payload.quantity === "") payload.quantity = null;
+  if (payload.minOrder !== undefined && payload.minOrder === "") payload.minOrder = null;
+  if (payload.maxOrder !== undefined && payload.maxOrder === "") payload.maxOrder = null;
 
   return payload;
 };
@@ -446,7 +482,10 @@ const createProduct = asyncHandler(async (req, res) => {
     const check = validatePricingPayload({ body: req.body, existing: null });
     if (!check.ok) return res.status(400).json({ message: check.message });
 
-    const colorCheck = validateColorVariantsPayload({ body: req.body, existing: null });
+    const colorCheck = validateColorVariantsPayload({
+      body: req.body,
+      existing: null,
+    });
     if (!colorCheck.ok) return res.status(400).json({ message: colorCheck.message });
 
     const newProduct = await Product.create(req.body);
@@ -457,7 +496,8 @@ const createProduct = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error("Error creating product:", error);
-    return res.status(400).json({
+    const status = isValidationLikeError(error) ? 400 : 500;
+    return res.status(status).json({
       message: error?.message || "Product creation failed",
       error: error?.message,
     });
@@ -484,7 +524,10 @@ const updateProduct = asyncHandler(async (req, res) => {
     const check = validatePricingPayload({ body: req.body, existing });
     if (!check.ok) return res.status(400).json({ message: check.message });
 
-    const colorCheck = validateColorVariantsPayload({ body: req.body, existing });
+    const colorCheck = validateColorVariantsPayload({
+      body: req.body,
+      existing,
+    });
     if (!colorCheck.ok) return res.status(400).json({ message: colorCheck.message });
 
     Object.keys(req.body).forEach((key) => {
@@ -499,9 +542,10 @@ const updateProduct = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error(`Error updating product with ID ${id}:`, error);
-    return res.status(500).json({
+    const status = isValidationLikeError(error) ? 400 : 500;
+    return res.status(status).json({
       message: error?.message || "Internal Server Error",
-      error: error.message,
+      error: error?.message,
     });
   }
 });
@@ -527,8 +571,8 @@ const deleteProduct = asyncHandler(async (req, res) => {
   } catch (error) {
     console.error("Error deleting product:", error);
     return res.status(500).json({
-      error: "Internal Server Error",
-      details: error.message,
+      message: "Internal Server Error",
+      error: error?.message,
     });
   }
 });
@@ -638,6 +682,7 @@ const addToWhishlist = asyncHandler(async (req, res) => {
   const { prodId } = req.body;
 
   validateMongoDbId(prodId);
+  validateMongoDbId(_id);
 
   try {
     const user = await User.findById(_id);
@@ -653,7 +698,7 @@ const addToWhishlist = asyncHandler(async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       message: "Error adding to wishlist",
-      error: error.message,
+      error: error?.message,
     });
   }
 });
@@ -666,9 +711,19 @@ const rating = asyncHandler(async (req, res) => {
   const { star, prodId, comment } = req.body;
 
   validateMongoDbId(prodId);
+  validateMongoDbId(_id);
+
+  const numericStar = Number(star);
+
+  if (!Number.isFinite(numericStar) || numericStar < 1 || numericStar > 5) {
+    return res.status(400).json({ message: "star must be a number between 1 and 5" });
+  }
+
+  const safeComment =
+    comment === undefined || comment === null ? "" : String(comment).trim();
 
   const product = await Product.findById(prodId);
-  if (!product) return res.status(404).json({ error: "Product not found" });
+  if (!product) return res.status(404).json({ message: "Product not found" });
 
   const alreadyRated = product.ratings.find(
     (r) => r.postedBy.toString() === _id.toString()
@@ -679,8 +734,8 @@ const rating = asyncHandler(async (req, res) => {
       { _id: prodId, "ratings.postedBy": _id },
       {
         $set: {
-          "ratings.$.star": star,
-          "ratings.$.comment": comment,
+          "ratings.$.star": numericStar,
+          "ratings.$.comment": safeComment,
         },
       }
     );
@@ -689,7 +744,7 @@ const rating = asyncHandler(async (req, res) => {
       prodId,
       {
         $push: {
-          ratings: { star, comment, postedBy: _id },
+          ratings: { star: numericStar, comment: safeComment, postedBy: _id },
         },
       },
       { new: true }
@@ -697,8 +752,11 @@ const rating = asyncHandler(async (req, res) => {
   }
 
   const refreshed = await Product.findById(prodId);
-  const total = refreshed.ratings.length;
-  const sum = refreshed.ratings.reduce((acc, r) => acc + (Number(r.star) || 0), 0);
+  const total = refreshed?.ratings?.length || 0;
+  const sum = (refreshed?.ratings || []).reduce(
+    (acc, r) => acc + (Number(r.star) || 0),
+    0
+  );
 
   const avg = total ? sum / total : 0;
   const avg1 = Math.round(avg * 10) / 10;
