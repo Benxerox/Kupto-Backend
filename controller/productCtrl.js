@@ -24,15 +24,24 @@ const pickNested = (obj, path) => {
 
 const isPresent = (v) => v !== null && v !== undefined;
 
-/**
- * Validate pricing rules for:
- * - price / discountedPrice / discountMinQty
- * - bulkDiscount.minQty / bulkDiscount.price
- * - minOrder / maxOrder
- *
- * NOTE:
- * discountedPrice = SALE unit price (must be < price)
- */
+const normalizeObjectIdArray = (arr) => {
+  if (!Array.isArray(arr)) return [];
+  return arr.filter(Boolean).map((v) => String(v));
+};
+
+const normalizeImages = (images) => {
+  if (!Array.isArray(images)) return [];
+  return images
+    .filter((img) => img && img.public_id && img.url)
+    .map((img) => ({
+      public_id: String(img.public_id).trim(),
+      url: String(img.url).trim(),
+    }));
+};
+
+/* =========================================
+   Validate product-level pricing
+========================================= */
 const validatePricingPayload = ({ body, existing }) => {
   // -----------------------
   // price
@@ -48,7 +57,7 @@ const validatePricingPayload = ({ body, existing }) => {
   if (nextPrice < 0) return { ok: false, message: "Price must be >= 0" };
 
   // -----------------------
-  // discountedPrice (SALE price)
+  // discountedPrice
   // -----------------------
   let nextDiscounted = existing?.discountedPrice ?? null;
 
@@ -58,16 +67,16 @@ const validatePricingPayload = ({ body, existing }) => {
   }
 
   if (Number.isNaN(nextDiscounted)) return { ok: false, message: "Invalid discountedPrice" };
-  if (nextDiscounted !== null && nextDiscounted < 0)
+  if (nextDiscounted !== null && nextDiscounted < 0) {
     return { ok: false, message: "discountedPrice must be >= 0" };
+  }
 
-  // ✅ SALE price rule: discountedPrice must be < price
   if (nextDiscounted !== null && !(Number(nextDiscounted) < Number(nextPrice))) {
     return { ok: false, message: "discountedPrice must be less than price" };
   }
 
   // -----------------------
-  // discountMinQty (threshold for discountedPrice)
+  // discountMinQty
   // -----------------------
   let nextDiscountMinQty = existing?.discountMinQty ?? null;
 
@@ -77,16 +86,16 @@ const validatePricingPayload = ({ body, existing }) => {
   }
 
   if (Number.isNaN(nextDiscountMinQty)) return { ok: false, message: "Invalid discountMinQty" };
-  if (nextDiscountMinQty !== null && nextDiscountMinQty < 1)
+  if (nextDiscountMinQty !== null && nextDiscountMinQty < 1) {
     return { ok: false, message: "discountMinQty must be >= 1" };
+  }
 
-  // ✅ if discountMinQty is set, discountedPrice MUST be set
   if (nextDiscountMinQty !== null && (nextDiscounted === null || nextDiscounted === undefined)) {
     return { ok: false, message: "discountMinQty requires discountedPrice to be set" };
   }
 
   // -----------------------
-  // bulkDiscount (minQty + price together)
+  // bulkDiscount
   // -----------------------
   const bdMinRaw =
     pickNested(body, "bulkDiscount.minQty") !== undefined
@@ -104,6 +113,7 @@ const validatePricingPayload = ({ body, existing }) => {
 
   const bdMin =
     bdMinRaw === "" || bdMinRaw === undefined || bdMinRaw === null ? null : toNumberOrNull(bdMinRaw);
+
   const bdPrice =
     bdPriceRaw === "" || bdPriceRaw === undefined || bdPriceRaw === null
       ? null
@@ -115,7 +125,6 @@ const validatePricingPayload = ({ body, existing }) => {
   const hasBdMin = isPresent(bdMin);
   const hasBdPrice = isPresent(bdPrice);
 
-  // if one is set, require the other
   if (hasBdMin !== hasBdPrice) {
     return { ok: false, message: "bulkDiscount requires BOTH minQty and price" };
   }
@@ -148,8 +157,13 @@ const validatePricingPayload = ({ body, existing }) => {
   if (Number.isNaN(nextMinOrder)) return { ok: false, message: "Invalid minOrder" };
   if (Number.isNaN(nextMaxOrder)) return { ok: false, message: "Invalid maxOrder" };
 
-  if (nextMinOrder !== null && nextMinOrder < 1) return { ok: false, message: "minOrder must be >= 1" };
-  if (nextMaxOrder !== null && nextMaxOrder < 1) return { ok: false, message: "maxOrder must be >= 1" };
+  if (nextMinOrder !== null && nextMinOrder < 1) {
+    return { ok: false, message: "minOrder must be >= 1" };
+  }
+
+  if (nextMaxOrder !== null && nextMaxOrder < 1) {
+    return { ok: false, message: "maxOrder must be >= 1" };
+  }
 
   if (nextMinOrder !== null && nextMaxOrder !== null && nextMaxOrder < nextMinOrder) {
     return { ok: false, message: "maxOrder must be greater than or equal to minOrder" };
@@ -168,17 +182,279 @@ const validatePricingPayload = ({ body, existing }) => {
 };
 
 /* =========================================
+   Validate colorVariants pricing
+========================================= */
+const validateColorVariantsPayload = ({ body, existing }) => {
+  const incomingColors =
+    body.color !== undefined
+      ? normalizeObjectIdArray(body.color)
+      : existing?.color
+      ? existing.color.map((c) => String(c))
+      : [];
+
+  const colorVariants =
+    body.colorVariants !== undefined
+      ? Array.isArray(body.colorVariants)
+        ? body.colorVariants
+        : null
+      : existing?.colorVariants || [];
+
+  if (colorVariants === null) {
+    return { ok: false, message: "colorVariants must be an array" };
+  }
+
+  const allowedColors = new Set(incomingColors);
+  const seen = new Set();
+
+  // effective product price fallback
+  const effectiveBasePrice =
+    body.price !== undefined && body.price !== null && body.price !== ""
+      ? toNumberOrNull(body.price)
+      : existing
+      ? Number(existing.price)
+      : null;
+
+  if (effectiveBasePrice === null || Number.isNaN(effectiveBasePrice) || effectiveBasePrice < 0) {
+    return { ok: false, message: "A valid base product price is required before color pricing." };
+  }
+
+  for (const variant of colorVariants) {
+    if (!variant || !variant.color) {
+      return { ok: false, message: "Each colorVariants item must include color." };
+    }
+
+    const colorId = String(variant.color);
+
+    if (!allowedColors.has(colorId)) {
+      return {
+        ok: false,
+        message: "Every colorVariants.color must exist in the product color array.",
+      };
+    }
+
+    if (seen.has(colorId)) {
+      return { ok: false, message: "Each color can only appear once in colorVariants." };
+    }
+    seen.add(colorId);
+
+    const variantPrice =
+      variant.price === "" || variant.price === undefined || variant.price === null
+        ? Number(effectiveBasePrice)
+        : toNumberOrNull(variant.price);
+
+    if (Number.isNaN(variantPrice)) {
+      return { ok: false, message: `Invalid color variant price for color ${colorId}` };
+    }
+    if (variantPrice < 0) {
+      return { ok: false, message: `Color variant price must be >= 0 for color ${colorId}` };
+    }
+
+    const variantDiscounted =
+      variant.discountedPrice === "" ||
+      variant.discountedPrice === undefined ||
+      variant.discountedPrice === null
+        ? null
+        : toNumberOrNull(variant.discountedPrice);
+
+    if (Number.isNaN(variantDiscounted)) {
+      return { ok: false, message: `Invalid color variant discountedPrice for color ${colorId}` };
+    }
+
+    if (variantDiscounted !== null && variantDiscounted < 0) {
+      return {
+        ok: false,
+        message: `Color variant discountedPrice must be >= 0 for color ${colorId}`,
+      };
+    }
+
+    if (variantDiscounted !== null && !(Number(variantDiscounted) < Number(variantPrice))) {
+      return {
+        ok: false,
+        message: `Color variant discountedPrice must be less than price for color ${colorId}`,
+      };
+    }
+
+    const variantDiscountMinQty =
+      variant.discountMinQty === "" || variant.discountMinQty === undefined || variant.discountMinQty === null
+        ? null
+        : toNumberOrNull(variant.discountMinQty);
+
+    if (Number.isNaN(variantDiscountMinQty)) {
+      return { ok: false, message: `Invalid color variant discountMinQty for color ${colorId}` };
+    }
+
+    if (variantDiscountMinQty !== null && variantDiscountMinQty < 1) {
+      return {
+        ok: false,
+        message: `Color variant discountMinQty must be >= 1 for color ${colorId}`,
+      };
+    }
+
+    if (
+      variantDiscountMinQty !== null &&
+      (variantDiscounted === null || variantDiscounted === undefined)
+    ) {
+      return {
+        ok: false,
+        message: `Color variant discountMinQty requires discountedPrice for color ${colorId}`,
+      };
+    }
+
+    const bdMinRaw = pickNested(variant, "bulkDiscount.minQty");
+    const bdPriceRaw = pickNested(variant, "bulkDiscount.price");
+
+    const bdMin =
+      bdMinRaw === "" || bdMinRaw === undefined || bdMinRaw === null ? null : toNumberOrNull(bdMinRaw);
+
+    const bdPrice =
+      bdPriceRaw === "" || bdPriceRaw === undefined || bdPriceRaw === null
+        ? null
+        : toNumberOrNull(bdPriceRaw);
+
+    if (Number.isNaN(bdMin)) {
+      return { ok: false, message: `Invalid color variant bulkDiscount.minQty for color ${colorId}` };
+    }
+
+    if (Number.isNaN(bdPrice)) {
+      return { ok: false, message: `Invalid color variant bulkDiscount.price for color ${colorId}` };
+    }
+
+    const hasBdMin = isPresent(bdMin);
+    const hasBdPrice = isPresent(bdPrice);
+
+    if (hasBdMin !== hasBdPrice) {
+      return {
+        ok: false,
+        message: `Color variant bulkDiscount requires BOTH minQty and price for color ${colorId}`,
+      };
+    }
+
+    if (hasBdMin && hasBdPrice) {
+      if (bdMin < 1) {
+        return {
+          ok: false,
+          message: `Color variant bulkDiscount.minQty must be >= 1 for color ${colorId}`,
+        };
+      }
+
+      if (bdPrice < 0) {
+        return {
+          ok: false,
+          message: `Color variant bulkDiscount.price must be >= 0 for color ${colorId}`,
+        };
+      }
+
+      if (Number(bdPrice) > Number(variantPrice)) {
+        return {
+          ok: false,
+          message: `Color variant bulkDiscount.price must be <= price for color ${colorId}`,
+        };
+      }
+    }
+
+    const qty =
+      variant.quantity === "" || variant.quantity === undefined || variant.quantity === null
+        ? null
+        : toNumberOrNull(variant.quantity);
+
+    if (Number.isNaN(qty)) {
+      return { ok: false, message: `Invalid color variant quantity for color ${colorId}` };
+    }
+
+    if (qty !== null && qty < 0) {
+      return { ok: false, message: `Color variant quantity must be >= 0 for color ${colorId}` };
+    }
+
+    if (variant.images !== undefined && !Array.isArray(variant.images)) {
+      return { ok: false, message: `Color variant images must be an array for color ${colorId}` };
+    }
+  }
+
+  return { ok: true };
+};
+
+/* =========================================
+   Normalize request body before save
+========================================= */
+const normalizeProductPayload = (body) => {
+  const payload = { ...body };
+
+  if (payload.title) {
+    payload.title = String(payload.title).trim();
+    payload.slug = slugify(payload.title, { lower: true, strict: true, trim: true });
+  }
+
+  if (payload.color !== undefined) {
+    payload.color = normalizeObjectIdArray(payload.color);
+  }
+
+  if (payload.size !== undefined) {
+    payload.size = normalizeObjectIdArray(payload.size);
+  }
+
+  if (payload.category !== undefined) {
+    payload.category = normalizeObjectIdArray(payload.category);
+  }
+
+  if (payload.images !== undefined) {
+    payload.images = normalizeImages(payload.images);
+  }
+
+  if (payload.tags !== undefined && Array.isArray(payload.tags)) {
+    payload.tags = payload.tags
+      .map((tag) => String(tag).trim())
+      .filter(Boolean);
+  }
+
+  if (payload.colorVariants !== undefined && Array.isArray(payload.colorVariants)) {
+    payload.colorVariants = payload.colorVariants
+      .filter((v) => v && v.color)
+      .map((v) => ({
+        color: String(v.color),
+        price: v.price === "" || v.price === undefined ? null : v.price,
+        discountedPrice:
+          v.discountedPrice === "" || v.discountedPrice === undefined ? null : v.discountedPrice,
+        discountMinQty:
+          v.discountMinQty === "" || v.discountMinQty === undefined ? null : v.discountMinQty,
+        bulkDiscount: {
+          minQty:
+            pickNested(v, "bulkDiscount.minQty") === "" ||
+            pickNested(v, "bulkDiscount.minQty") === undefined
+              ? null
+              : pickNested(v, "bulkDiscount.minQty"),
+          price:
+            pickNested(v, "bulkDiscount.price") === "" ||
+            pickNested(v, "bulkDiscount.price") === undefined
+              ? null
+              : pickNested(v, "bulkDiscount.price"),
+        },
+        quantity: v.quantity === "" || v.quantity === undefined ? null : v.quantity,
+        images: normalizeImages(v.images),
+      }));
+  }
+
+  return payload;
+};
+
+/* =========================================
    CREATE PRODUCT
 ========================================= */
 const createProduct = asyncHandler(async (req, res) => {
   try {
-    if (req.body.title) req.body.slug = slugify(req.body.title.trim());
+    req.body = normalizeProductPayload(req.body);
 
     const check = validatePricingPayload({ body: req.body, existing: null });
     if (!check.ok) return res.status(400).json({ message: check.message });
 
+    const colorCheck = validateColorVariantsPayload({ body: req.body, existing: null });
+    if (!colorCheck.ok) return res.status(400).json({ message: colorCheck.message });
+
     const newProduct = await Product.create(req.body);
-    return res.status(201).json({ newProduct });
+
+    return res.status(201).json({
+      message: "Product created successfully",
+      data: newProduct,
+    });
   } catch (error) {
     console.error("Error creating product:", error);
     return res.status(400).json({
@@ -190,33 +466,41 @@ const createProduct = asyncHandler(async (req, res) => {
 
 /* =========================================
    UPDATE PRODUCT
+   IMPORTANT:
+   Use document save() so pre('validate') / pre('save') logic runs
 ========================================= */
 const updateProduct = asyncHandler(async (req, res) => {
   const id = req.params.id;
   validateMongoDbId(id);
 
   try {
-    if (req.body.title) req.body.slug = slugify(req.body.title.trim());
+    req.body = normalizeProductPayload(req.body);
 
-    const existing = await Product.findById(id).select(
-      "price discountedPrice discountMinQty minOrder maxOrder bulkDiscount"
-    );
-    if (!existing) return res.status(404).json({ message: "Product not found" });
+    const existing = await Product.findById(id);
+    if (!existing) {
+      return res.status(404).json({ message: "Product not found" });
+    }
 
     const check = validatePricingPayload({ body: req.body, existing });
     if (!check.ok) return res.status(400).json({ message: check.message });
 
-    const updated = await Product.findByIdAndUpdate(id, req.body, {
-      new: true,
-      runValidators: true,
-      context: "query",
+    const colorCheck = validateColorVariantsPayload({ body: req.body, existing });
+    if (!colorCheck.ok) return res.status(400).json({ message: colorCheck.message });
+
+    Object.keys(req.body).forEach((key) => {
+      existing[key] = req.body[key];
     });
 
-    return res.json({ message: "Product updated successfully", data: updated });
+    const updated = await existing.save();
+
+    return res.json({
+      message: "Product updated successfully",
+      data: updated,
+    });
   } catch (error) {
     console.error(`Error updating product with ID ${id}:`, error);
     return res.status(500).json({
-      message: "Internal Server Error",
+      message: error?.message || "Internal Server Error",
       error: error.message,
     });
   }
@@ -231,11 +515,21 @@ const deleteProduct = asyncHandler(async (req, res) => {
 
   try {
     const deletedProduct = await Product.findByIdAndDelete(id);
-    if (!deletedProduct) return res.status(404).json({ message: "Product not found" });
-    return res.json({ message: "Product deleted successfully", data: deletedProduct });
+
+    if (!deletedProduct) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    return res.json({
+      message: "Product deleted successfully",
+      data: deletedProduct,
+    });
   } catch (error) {
     console.error("Error deleting product:", error);
-    return res.status(500).json({ error: "Internal Server Error", details: error.message });
+    return res.status(500).json({
+      error: "Internal Server Error",
+      details: error.message,
+    });
   }
 });
 
@@ -250,68 +544,58 @@ const getaProduct = asyncHandler(async (req, res) => {
     .populate("color")
     .populate("size")
     .populate("category")
-    .populate({ path: "variantImages.color", model: "Color" }); // ✅ IMPORTANT
+    .populate({ path: "colorVariants.color", model: "Color" });
 
-  return res.json({ data: findProduct }); // ✅ consistent
+  if (!findProduct) {
+    return res.status(404).json({ message: "Product not found" });
+  }
 
+  return res.json({ data: findProduct });
 });
 
 /* =========================================
-   GET ALL PRODUCTS (UPDATED: SEARCH + PAGINATION)
-   ✅ Supports: searchTerm, search, q
-   ✅ Prevents: q/search/searchTerm from becoming Mongo filters
-   ✅ Safe pagination when total = 0
+   GET ALL PRODUCTS
+   Supports:
+   - search / searchTerm / q
+   - pagination
+   - sort
+   - fields
+   - filtering
 ========================================= */
 const getAllProduct = asyncHandler(async (req, res) => {
-  // 1) clone query params
   const queryObj = { ...req.query };
 
-  // ✅ Pull search params out so they DO NOT become Mongo filters
   const searchRaw = (queryObj.search ?? queryObj.searchTerm ?? queryObj.q ?? "")
     .toString()
     .trim();
 
-  // ✅ Remove search keys so they don't end up inside Mongo filter
   delete queryObj.search;
   delete queryObj.searchTerm;
   delete queryObj.q;
 
-  // 2) remove special params
   const excludeFields = ["page", "sort", "limit", "fields"];
   excludeFields.forEach((el) => delete queryObj[el]);
 
-  // 3) build filter + support gte/gt/lte/lt
   let queryStr = JSON.stringify(queryObj);
   queryStr = queryStr.replace(/\b(gte|gt|lte|lt)\b/g, (match) => `$${match}`);
   const filter = JSON.parse(queryStr);
 
-  // ✅ Apply text search (edit fields as you like)
-  // Escapes special regex chars to avoid breaking searches (eg: "+", ".", "(", ")")
   if (searchRaw) {
     const escaped = searchRaw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const rx = new RegExp(escaped, "i");
-
-    // If tags is an array of strings, { tags: rx } works
     filter.$or = [{ title: rx }, { description: rx }, { brand: rx }, { tags: rx }];
   }
 
-  // 4) sorting
   const sortBy = req.query.sort ? req.query.sort.split(",").join(" ") : "-createdAt";
-
-  // 5) field selection
   const selectFields = req.query.fields ? req.query.fields.split(",").join(" ") : "-__v";
 
-  // 6) pagination (safe)
   const page = Math.max(1, Number(req.query.page || 1));
   const limit = Math.max(1, Number(req.query.limit || 100));
   const skip = (page - 1) * limit;
 
-  // ✅ count documents using SAME filter
   const total = await Product.countDocuments(filter);
   const pages = total === 0 ? 0 : Math.ceil(total / limit);
 
-  // ✅ If page requested beyond range, return empty list instead of error
-  // (Prevents "This page does not exist" even when filters/search reduce results)
   if (total > 0 && page > pages) {
     return res.status(200).json({
       total,
@@ -325,14 +609,16 @@ const getAllProduct = asyncHandler(async (req, res) => {
     });
   }
 
-  // 7) run query
   const data = await Product.find(filter)
+    .populate("color")
+    .populate("size")
+    .populate("category")
+    .populate({ path: "colorVariants.color", model: "Color" })
     .sort(sortBy)
     .select(selectFields)
     .skip(skip)
     .limit(limit);
 
-  // 8) return
   return res.json({
     total,
     page,
@@ -351,8 +637,12 @@ const addToWhishlist = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   const { prodId } = req.body;
 
+  validateMongoDbId(prodId);
+
   try {
     const user = await User.findById(_id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
     const alreadyAdded = user.wishlist.find((id) => id.toString() === prodId);
 
     const updatedUser = alreadyAdded
@@ -361,32 +651,47 @@ const addToWhishlist = asyncHandler(async (req, res) => {
 
     return res.json(updatedUser);
   } catch (error) {
-    return res.status(500).json({ message: "Error adding to wishlist", error: error.message });
+    return res.status(500).json({
+      message: "Error adding to wishlist",
+      error: error.message,
+    });
   }
 });
 
 /* =========================================
    RATING
-   ✅ store average as decimal (1 decimal)
 ========================================= */
 const rating = asyncHandler(async (req, res) => {
   const { _id } = req.user;
   const { star, prodId, comment } = req.body;
 
+  validateMongoDbId(prodId);
+
   const product = await Product.findById(prodId);
   if (!product) return res.status(404).json({ error: "Product not found" });
 
-  const alreadyRated = product.ratings.find((r) => r.postedBy.toString() === _id.toString());
+  const alreadyRated = product.ratings.find(
+    (r) => r.postedBy.toString() === _id.toString()
+  );
 
   if (alreadyRated) {
     await Product.updateOne(
-      { "ratings.postedBy": _id, _id: prodId },
-      { $set: { "ratings.$.star": star, "ratings.$.comment": comment } }
+      { _id: prodId, "ratings.postedBy": _id },
+      {
+        $set: {
+          "ratings.$.star": star,
+          "ratings.$.comment": comment,
+        },
+      }
     );
   } else {
     await Product.findByIdAndUpdate(
       prodId,
-      { $push: { ratings: { star, comment, postedBy: _id } } },
+      {
+        $push: {
+          ratings: { star, comment, postedBy: _id },
+        },
+      },
       { new: true }
     );
   }

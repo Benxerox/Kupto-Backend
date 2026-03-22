@@ -1,23 +1,4 @@
-/*const mongoose = require('mongoose'); // Erase if already required
 
-
-var colorSchema = new mongoose.Schema({
-    title:{
-        type:String,
-        required: false,
-        unique:true,
-        index:true,
-    },
-    
-
-},
-{
-timestamps: true,
-}
-);
-
-//Export the model
-module.exports = mongoose.model('Color', colorSchema);*/
 
 const mongoose = require("mongoose");
 const slugify = require("slugify");
