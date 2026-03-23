@@ -14,8 +14,6 @@ const toNumberOrNull = (v) => {
   return Number.isFinite(n) ? n : NaN;
 };
 
-const isPresent = (v) => v !== null && v !== undefined;
-
 const normalizeObjectIdArray = (arr) => {
   if (!Array.isArray(arr)) return [];
   return arr.filter(Boolean).map((v) => String(v));
@@ -42,6 +40,10 @@ const isValidationLikeError = (error) => {
 
 /* =========================================
    Validate product-level pricing
+   Uses size-style discount logic only:
+   - price
+   - discountedPrice
+   - discountMinQty
 ========================================= */
 const validatePricingPayload = ({ body, existing }) => {
   // -----------------------
@@ -109,51 +111,6 @@ const validatePricingPayload = ({ body, existing }) => {
   }
 
   // -----------------------
-  // bulkDiscount
-  // -----------------------
-  const bdMinRaw =
-    body?.bulkDiscount?.minQty !== undefined
-      ? body.bulkDiscount.minQty
-      : existing
-      ? existing?.bulkDiscount?.minQty
-      : undefined;
-
-  const bdPriceRaw =
-    body?.bulkDiscount?.price !== undefined
-      ? body.bulkDiscount.price
-      : existing
-      ? existing?.bulkDiscount?.price
-      : undefined;
-
-  const bdMin =
-    bdMinRaw === "" || bdMinRaw === undefined || bdMinRaw === null
-      ? null
-      : toNumberOrNull(bdMinRaw);
-
-  const bdPrice =
-    bdPriceRaw === "" || bdPriceRaw === undefined || bdPriceRaw === null
-      ? null
-      : toNumberOrNull(bdPriceRaw);
-
-  if (Number.isNaN(bdMin)) return { ok: false, message: "Invalid bulkDiscount.minQty" };
-  if (Number.isNaN(bdPrice)) return { ok: false, message: "Invalid bulkDiscount.price" };
-
-  const hasBdMin = isPresent(bdMin);
-  const hasBdPrice = isPresent(bdPrice);
-
-  if (hasBdMin !== hasBdPrice) {
-    return { ok: false, message: "bulkDiscount requires BOTH minQty and price" };
-  }
-
-  if (hasBdMin && hasBdPrice) {
-    if (bdMin < 1) return { ok: false, message: "bulkDiscount.minQty must be >= 1" };
-    if (bdPrice < 0) return { ok: false, message: "bulkDiscount.price must be >= 0" };
-    if (Number(bdPrice) > Number(nextPrice)) {
-      return { ok: false, message: "bulkDiscount.price must be <= price" };
-    }
-  }
-
-  // -----------------------
   // quantity
   // -----------------------
   const nextQuantity =
@@ -204,8 +161,6 @@ const validatePricingPayload = ({ body, existing }) => {
     nextPrice,
     nextDiscounted,
     nextDiscountMinQty,
-    bdMin,
-    bdPrice,
     nextQuantity,
     nextMinOrder,
     nextMaxOrder,
@@ -214,7 +169,6 @@ const validatePricingPayload = ({ body, existing }) => {
 
 /* =========================================
    Validate colorVariants pricing
-   No color-level bulkDiscount anymore
 ========================================= */
 const validateColorVariantsPayload = ({ body, existing }) => {
   const incomingColors =
@@ -441,23 +395,6 @@ const normalizeProductPayload = (body) => {
       }));
   }
 
-  if (payload.bulkDiscount !== undefined) {
-    payload.bulkDiscount = {
-      minQty:
-        payload.bulkDiscount?.minQty === "" ||
-        payload.bulkDiscount?.minQty === undefined ||
-        payload.bulkDiscount?.minQty === null
-          ? null
-          : payload.bulkDiscount.minQty,
-      price:
-        payload.bulkDiscount?.price === "" ||
-        payload.bulkDiscount?.price === undefined ||
-        payload.bulkDiscount?.price === null
-          ? null
-          : payload.bulkDiscount.price,
-    };
-  }
-
   if (payload.price !== undefined && payload.price === "") payload.price = null;
   if (payload.discountedPrice !== undefined && payload.discountedPrice === "") {
     payload.discountedPrice = null;
@@ -468,6 +405,12 @@ const normalizeProductPayload = (body) => {
   if (payload.quantity !== undefined && payload.quantity === "") payload.quantity = null;
   if (payload.minOrder !== undefined && payload.minOrder === "") payload.minOrder = null;
   if (payload.maxOrder !== undefined && payload.maxOrder === "") payload.maxOrder = null;
+
+  // hard cleanup in case old frontend still sends removed fields
+  delete payload.bulkDiscount;
+  delete payload.hasBulkDiscount;
+  delete payload.bulkMinQty;
+  delete payload.bulkPrice;
 
   return payload;
 };
