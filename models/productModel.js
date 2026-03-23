@@ -12,21 +12,23 @@ const getUpdate = (ctx) => {
 };
 
 const getVal = (ctx, field) => {
+  if (!ctx) return undefined;
+
   // 1) Document context
-  if (ctx && Object.prototype.hasOwnProperty.call(ctx, field)) return ctx[field];
+  if (ctx[field] !== undefined) return ctx[field];
 
   // 2) Query/update context
   const u = getUpdate(ctx);
   if (!u) return undefined;
 
   // direct
-  if (Object.prototype.hasOwnProperty.call(u, field)) return u[field];
+  if (u[field] !== undefined) return u[field];
 
   // $set / $setOnInsert
-  if (u.$set && Object.prototype.hasOwnProperty.call(u.$set, field)) {
+  if (u.$set && u.$set[field] !== undefined) {
     return u.$set[field];
   }
-  if (u.$setOnInsert && Object.prototype.hasOwnProperty.call(u.$setOnInsert, field)) {
+  if (u.$setOnInsert && u.$setOnInsert[field] !== undefined) {
     return u.$setOnInsert[field];
   }
 
@@ -150,7 +152,7 @@ const productSchema = new mongoose.Schema(
           if (v === null || v === undefined) return true;
 
           const price = getVal(this, "price");
-          if (price !== null && price !== undefined) {
+          if (price !== null && price !== undefined && price !== "") {
             return Number(v) < Number(price);
           }
 
@@ -169,7 +171,7 @@ const productSchema = new mongoose.Schema(
           if (v === null || v === undefined) return true;
 
           const disc = getVal(this, "discountedPrice");
-          return disc !== null && disc !== undefined;
+          return disc !== null && disc !== undefined && disc !== "";
         },
         message: "discountMinQty requires discountedPrice to be set.",
       },
@@ -202,7 +204,9 @@ const productSchema = new mongoose.Schema(
           if (v === null || v === undefined) return true;
 
           const minOrder = getVal(this, "minOrder");
-          if (minOrder === null || minOrder === undefined) return true;
+          if (minOrder === null || minOrder === undefined || minOrder === "") {
+            return true;
+          }
 
           return Number(v) >= Number(minOrder);
         },
