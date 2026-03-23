@@ -473,6 +473,38 @@ const updateProduct = asyncHandler(async (req, res) => {
     });
     if (!colorCheck.ok) return res.status(400).json({ message: colorCheck.message });
 
+    // Preserve existing color variant images when incoming update sends empty images
+    if (Array.isArray(req.body.colorVariants)) {
+      const existingVariantMap = new Map(
+        (existing.colorVariants || []).map((variant) => [
+          String(variant.color),
+          {
+            color: variant.color,
+            price: variant.price,
+            discountedPrice: variant.discountedPrice,
+            discountMinQty: variant.discountMinQty,
+            quantity: variant.quantity,
+            images: normalizeImages(variant.images),
+          },
+        ])
+      );
+
+      req.body.colorVariants = req.body.colorVariants.map((incoming) => {
+        const oldVariant = existingVariantMap.get(String(incoming.color));
+        const incomingImages = normalizeImages(incoming.images);
+
+        return {
+          ...incoming,
+          images:
+            incomingImages.length > 0
+              ? incomingImages
+              : oldVariant?.images?.length > 0
+              ? oldVariant.images
+              : [],
+        };
+      });
+    }
+
     Object.keys(req.body).forEach((key) => {
       existing[key] = req.body[key];
     });
