@@ -592,43 +592,156 @@ const getAllProduct = asyncHandler(async (req, res) => {
   delete queryObj.searchTerm;
   delete queryObj.q;
 
-  const excludeFields = ["page", "sort", "limit", "fields"];
-  excludeFields.forEach((el) => delete queryObj[el]);
-
-  let queryStr = JSON.stringify(queryObj);
-  queryStr = queryStr.replace(/\b(gte|gt|lte|lt)\b/g, (match) => `$${match}`);
-  const filter = JSON.parse(queryStr);
-
-  if (searchRaw) {
-    const escaped = searchRaw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const rx = new RegExp(escaped, "i");
-    filter.$or = [{ title: rx }, { description: rx }, { brand: rx }, { tags: rx }];
-  }
+  const page = Math.max(1, Number(req.query.page || 1));
+  const limit = Math.max(1, Number(req.query.limit || 100));
+  const skip = (page - 1) * limit;
 
   const sortBy = req.query.sort ? req.query.sort.split(",").join(" ") : "-createdAt";
   const selectFields = req.query.fields ? req.query.fields.split(",").join(" ") : "-__v";
 
-  const page = Math.max(1, Number(req.query.page || 1));
-  const limit = Math.max(1, Number(req.query.limit || 100));
-  const skip = (page - 1) * limit;
+  const excludeFields = ["page", "sort", "limit", "fields"];
+  excludeFields.forEach((el) => delete queryObj[el]);
+
+  const filter = {};
+
+  // =========================
+  // Numeric range filters
+  // =========================
+  ["price", "discountedPrice", "quantity", "totalrating", "sold"].forEach((field) => {
+    if (queryObj[field] && typeof queryObj[field] === "object") {
+      const ops = {};
+      if (queryObj[field].gte !== undefined) ops.$gte = Number(queryObj[field].gte);
+      if (queryObj[field].gt !== undefined) ops.$gt = Number(queryObj[field].gt);
+      if (queryObj[field].lte !== undefined) ops.$lte = Number(queryObj[field].lte);
+      if (queryObj[field].lt !== undefined) ops.$lt = Number(queryObj[field].lt);
+
+      if (Object.keys(ops).length > 0) {
+        filter[field] = ops;
+      }
+    }
+  });
+
+  // =========================
+  // Direct filters
+  // =========================
+  if (queryObj.minPrice !== undefined || queryObj.maxPrice !== undefined) {
+    const min = queryObj.minPrice !== undefined ? Number(queryObj.minPrice) : null;
+    const max = queryObj.maxPrice !== undefined ? Number(queryObj.maxPrice) : null;
+
+    if (!Number.isNaN(min) || !Number.isNaN(max)) {
+      filter.price = {};
+      if (min !== null && !Number.isNaN(min)) filter.price.$gte = min;
+      if (max !== null && !Number.isNaN(max)) filter.price.$lte = max;
+    }
+  }
+
+  if (queryObj.brand) {
+    filter.brand = String(queryObj.brand).trim();
+  }
+
+  if (queryObj.category) {
+    const rawCategory = String(queryObj.category).trim();
+
+    // ✅ IMPORTANT:
+    // Matches products whose category field is an array and contains this category id
+    // Also works for single-value category fields
+    filter.category = { $in: [rawCategory] };
+  }
+
+  if (queryObj.color) {
+    const rawColor = Array.isArray(queryObj.color)
+      ? queryObj.color
+      : String(queryObj.color)
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean);
+
+    if (rawColor.length > 0) {
+      filter.color = { $in: rawColor };
+    }
+  }
+
+  if (queryObj.size) {
+    const rawSize = Array.isArray(queryObj.size)
+      ? queryObj.size
+      : String(queryObj.size)
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean);
+
+    if (rawSize.length > 0) {
+      filter.size = { $in: rawSize };
+    }
+  }
+
+  if (queryObj.tag) {
+    const rawTag = String(queryObj.tag).trim();
+    if (rawTag) {
+      filter.tags = { $in: [rawTag] };
+    }
+  }
+
+  if (queryObj.tags) {
+    const rawTags = Array.isArray(queryObj.tags)
+      ? queryObj.tags
+      : String(queryObj.tags)
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean);
+
+    if (rawTags.length > 0) {
+      filter.tags = { $all: rawTags };
+    }
+  }
+
+  if (queryObj.status) {
+    filter.status = String(queryObj.status).trim();
+  }
+
+  if (queryObj.isPrintable !== undefined) {
+    const printable =
+      queryObj.isPrintable === true ||
+      queryObj.isPrintable === "true" ||
+      queryObj.isPrintable === 1 ||
+      queryObj.isPrintable === "1";
+    filter.isPrintable = printable;
+  }
+
+  // =========================
+  // Search
+  // =========================
+  if (searchRaw) {
+    const escaped = searchRaw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const rx = new RegExp(escaped, "i");
+
+    filter.$or = [
+      { title: rx },
+      { description: rx },
+      { brand: rx },
+      { tags: rx },
+    ];
+  }
 
   const total = await Product.countDocuments(filter);
   const pages = total === 0 ? 0 : Math.ceil(total / limit);
 
   if (total > 0 && page > pages) {
     return res.status(200).json({
-      total,
-      page,
-      limit,
-      pages,
-      hasNextPage: false,
-      hasPrevPage: pages > 0,
+      products: [],
       data: [],
+      meta: {
+        total,
+        page,
+        limit,
+        pages,
+        hasNextPage: false,
+        hasPrevPage: pages > 0,
+      },
       message: "No results for this page",
     });
   }
 
-  const data = await Product.find(filter)
+  const products = await Product.find(filter)
     .populate("color")
     .populate("size")
     .populate("category")
@@ -638,14 +751,17 @@ const getAllProduct = asyncHandler(async (req, res) => {
     .skip(skip)
     .limit(limit);
 
-  return res.json({
-    total,
-    page,
-    limit,
-    pages,
-    hasNextPage: pages > 0 ? page < pages : false,
-    hasPrevPage: pages > 0 ? page > 1 : false,
-    data,
+  return res.status(200).json({
+    products,
+    data: products,
+    meta: {
+      total,
+      page,
+      limit,
+      pages,
+      hasNextPage: pages > 0 ? page < pages : false,
+      hasPrevPage: pages > 0 ? page > 1 : false,
+    },
   });
 });
 
