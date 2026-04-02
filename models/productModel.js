@@ -129,7 +129,6 @@ const productSchema = new mongoose.Schema(
       required: true,
       unique: true,
       lowercase: true,
-      index: true,
       trim: true,
     },
 
@@ -244,7 +243,7 @@ const productSchema = new mongoose.Schema(
       default: [],
     },
 
-    color: [{ type: mongoose.Schema.Types.ObjectId, ref: "Color", index: true }],
+    color: [{ type: mongoose.Schema.Types.ObjectId, ref: "Color" }],
     size: [{ type: mongoose.Schema.Types.ObjectId, ref: "Size" }],
 
     /**
