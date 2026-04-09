@@ -395,6 +395,7 @@ const registerUserCtrl = asyncHandler(async (req, res) => {
       mobile: cleanMobile,
       dob: new Date(dob),
       password,
+      provider: "local",
       refreshTokens: [],
     });
 
@@ -500,6 +501,24 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
     throw new Error("Account is blocked");
   }
 
+  // ✅ attach google info to an existing account if missing
+  let changed = false;
+  if (googleId && !user.googleId) {
+    user.googleId = googleId;
+    changed = true;
+  }
+  if ((!user.provider || user.provider === "local") && googleId) {
+    user.provider = "google";
+    changed = true;
+  }
+  if (picture && !user.picture) {
+    user.picture = picture;
+    changed = true;
+  }
+  if (changed) {
+    await user.save();
+  }
+
   const sessionPayload = await issueSession(res, user);
 
   res.json({
@@ -510,7 +529,16 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
 
 // ✅ GOOGLE COMPLETE PROFILE
 const completeGoogleProfileCtrl = asyncHandler(async (req, res) => {
-  const { firstname, lastname, mobile, dob, email, picture, provider } = req.body;
+  const {
+    firstname,
+    lastname,
+    mobile,
+    dob,
+    email,
+    picture,
+    provider,
+    googleId,
+  } = req.body;
 
   if (!firstname || !lastname || !mobile || !dob || !email) {
     res.status(400);
@@ -530,7 +558,7 @@ const completeGoogleProfileCtrl = asyncHandler(async (req, res) => {
     throw new Error("mobile is not valid");
   }
 
-  let dobDate = new Date(dob);
+  const dobDate = new Date(dob);
   if (Number.isNaN(dobDate.getTime())) {
     res.status(400);
     throw new Error("dob is not valid");
@@ -562,13 +590,15 @@ const completeGoogleProfileCtrl = asyncHandler(async (req, res) => {
     existingByEmail.mobile = cleanMobile;
     existingByEmail.dob = dobDate;
 
+    if (googleId && !existingByEmail.googleId) {
+      existingByEmail.googleId = googleId;
+    }
+
     if (picture && !existingByEmail.picture) {
       existingByEmail.picture = picture;
     }
 
-    if (provider && !existingByEmail.provider) {
-      existingByEmail.provider = provider;
-    }
+    existingByEmail.provider = provider || "google";
 
     await existingByEmail.save();
 
@@ -583,6 +613,9 @@ const completeGoogleProfileCtrl = asyncHandler(async (req, res) => {
         email: existingByEmail.email,
         mobile: existingByEmail.mobile,
         dob: existingByEmail.dob,
+        provider: existingByEmail.provider,
+        googleId: existingByEmail.googleId || "",
+        picture: existingByEmail.picture || "",
       },
     });
   }
@@ -601,6 +634,7 @@ const completeGoogleProfileCtrl = asyncHandler(async (req, res) => {
       mobile: cleanMobile,
       dob: dobDate,
       provider: provider || "google",
+      googleId: googleId || "",
       picture: picture || "",
       refreshTokens: [],
     });
@@ -616,6 +650,9 @@ const completeGoogleProfileCtrl = asyncHandler(async (req, res) => {
         email: newUser.email,
         mobile: newUser.mobile,
         dob: newUser.dob,
+        provider: newUser.provider,
+        googleId: newUser.googleId || "",
+        picture: newUser.picture || "",
       },
     });
   } catch (err) {
@@ -1848,6 +1885,7 @@ const resetPasswordWithCode = asyncHandler(async (req, res) => {
   }
 
   user.password = password;
+  user.provider = user.provider || "local";
   await user.save();
 
   return res.status(200).json({ success: true, message: "Password reset successful" });

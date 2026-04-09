@@ -40,9 +40,32 @@ var userSchema = new mongoose.Schema(
       default: null,
     },
 
+    // ✅ google auth support
+    provider: {
+      type: String,
+      default: "local",
+      enum: ["local", "google"],
+    },
+
+    googleId: {
+      type: String,
+      default: "",
+      index: true,
+      sparse: true,
+    },
+
+    picture: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    // ✅ password required only for non-google accounts
     password: {
       type: String,
-      required: true,
+      required: function () {
+        return this.provider !== "google";
+      },
       select: false, // extra security
     },
 
@@ -109,6 +132,11 @@ userSchema.pre("save", async function (next) {
     return next();
   }
 
+  // ✅ skip hashing if google account has no password
+  if (!this.password) {
+    return next();
+  }
+
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 
@@ -120,6 +148,7 @@ userSchema.pre("save", async function (next) {
 ========================================================= */
 
 userSchema.methods.isPasswordMatched = async function (enteredPassword) {
+  if (!this.password) return false;
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
