@@ -196,8 +196,6 @@ const hasRefreshToken = (user, token) => {
   return String(user.refreshToken || "") === target;
 };
 
-
-
 const findUserByRefreshToken = async (token) => {
   const found = await User.findOne({
     $or: [{ refreshTokens: token }, { refreshToken: token }],
@@ -487,7 +485,13 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
       success: true,
       profileRequired: true,
       message: "Complete profile to finish signup",
-      googleProfile: { googleId, email: cleanEmail, firstname, lastname, picture },
+      googleProfile: {
+        googleId,
+        email: cleanEmail,
+        firstname,
+        lastname,
+        picture,
+      },
     });
   }
 
@@ -502,6 +506,125 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
     ...sessionPayload,
     profileRequired: false,
   });
+});
+
+// ✅ GOOGLE COMPLETE PROFILE
+const completeGoogleProfileCtrl = asyncHandler(async (req, res) => {
+  const { firstname, lastname, mobile, dob, email, picture, provider } = req.body;
+
+  if (!firstname || !lastname || !mobile || !dob || !email) {
+    res.status(400);
+    throw new Error("firstname, lastname, mobile, dob and email are required");
+  }
+
+  const cleanEmail = normalizeEmail(email);
+  const cleanMobile = normalizeMobile(mobile);
+
+  if (!cleanEmail) {
+    res.status(400);
+    throw new Error("email is not valid");
+  }
+
+  if (!cleanMobile) {
+    res.status(400);
+    throw new Error("mobile is not valid");
+  }
+
+  let dobDate = new Date(dob);
+  if (Number.isNaN(dobDate.getTime())) {
+    res.status(400);
+    throw new Error("dob is not valid");
+  }
+
+  const existingByEmail = await User.findOne({ email: cleanEmail });
+
+  if (existingByEmail) {
+    if (existingByEmail.isBlocked) {
+      res.status(403);
+      throw new Error("Account is blocked");
+    }
+
+    const anotherWithMobile =
+      existingByEmail.mobile && existingByEmail.mobile !== cleanMobile
+        ? await User.findOne({
+            mobile: cleanMobile,
+            _id: { $ne: existingByEmail._id },
+          })
+        : null;
+
+    if (anotherWithMobile) {
+      res.status(409);
+      throw new Error("Phone number is already used by another account");
+    }
+
+    existingByEmail.firstname = String(firstname).trim();
+    existingByEmail.lastname = String(lastname).trim();
+    existingByEmail.mobile = cleanMobile;
+    existingByEmail.dob = dobDate;
+
+    if (picture && !existingByEmail.picture) {
+      existingByEmail.picture = picture;
+    }
+
+    if (provider && !existingByEmail.provider) {
+      existingByEmail.provider = provider;
+    }
+
+    await existingByEmail.save();
+
+    const sessionPayload = await issueSession(res, existingByEmail);
+
+    return res.status(200).json({
+      ...sessionPayload,
+      user: {
+        _id: existingByEmail._id,
+        firstname: existingByEmail.firstname,
+        lastname: existingByEmail.lastname,
+        email: existingByEmail.email,
+        mobile: existingByEmail.mobile,
+        dob: existingByEmail.dob,
+      },
+    });
+  }
+
+  const existingByMobile = await User.findOne({ mobile: cleanMobile });
+  if (existingByMobile) {
+    res.status(409);
+    throw new Error("User already exists with this phone");
+  }
+
+  try {
+    const newUser = await User.create({
+      firstname: String(firstname).trim(),
+      lastname: String(lastname).trim(),
+      email: cleanEmail,
+      mobile: cleanMobile,
+      dob: dobDate,
+      provider: provider || "google",
+      picture: picture || "",
+      refreshTokens: [],
+    });
+
+    const sessionPayload = await issueSession(res, newUser);
+
+    return res.status(201).json({
+      ...sessionPayload,
+      user: {
+        _id: newUser._id,
+        firstname: newUser.firstname,
+        lastname: newUser.lastname,
+        email: newUser.email,
+        mobile: newUser.mobile,
+        dob: newUser.dob,
+      },
+    });
+  } catch (err) {
+    if (isMongoDupError(err)) {
+      res.status(409);
+      throw new Error("Email or phone already exists");
+    }
+    throw err;
+  }
 });
 
 // ✅ IDENTIFY USER
@@ -593,7 +716,6 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
   }
 
   try {
-    
     const refreshSecret = process.env.JWT_REFRESH_SECRET;
     if (!refreshSecret) {
       res.status(500);
@@ -1816,6 +1938,7 @@ module.exports = {
   registerUserCtrl,
   loginUserCtrl,
   googleLoginCtrl,
+  completeGoogleProfileCtrl,
   identifyUserCtrl,
   loginAdmin,
   handleRefreshToken,
@@ -1869,4 +1992,4 @@ module.exports = {
   // cancellation
   cancelMyOrder,
   cancelOrderAdmin,
-}; 
+};

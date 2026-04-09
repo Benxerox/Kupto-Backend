@@ -58,6 +58,7 @@ const {
   verifyCodeCtrl,
   cancelMyOrder,
   cancelOrderAdmin,
+  completeGoogleProfileCtrl,
 } = require("../controller/userCtrl");
 
 const { authMiddleware, isAdmin } = require("../middlewares/authMiddleware");
@@ -67,6 +68,7 @@ const { checkout, paymentVerification } = require("../controller/paymentCtrl");
    AUTH
 ========================= */
 router.post("/google", googleLoginCtrl);
+router.post("/google/complete-profile", completeGoogleProfileCtrl);
 router.post("/identify", identifyUserCtrl);
 router.post("/register", registerUserCtrl);
 router.post("/login", loginUserCtrl);
