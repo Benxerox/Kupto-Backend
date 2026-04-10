@@ -123,6 +123,45 @@ const formatUGX = (n) => {
 const getAdminOrderEmail = () =>
   process.env.ADMIN_ORDER_EMAIL || "kupto2020@gmail.com";
 
+const getEmailLogoUrl = () =>
+  String(
+    process.env.EMAIL_LOGO_URL ||
+      process.env.KUPTO_EMAIL_LOGO_URL ||
+      process.env.LOGO_URL ||
+      ""
+  ).trim();
+
+const getEmailBrandHeaderHtml = ({
+  logoUrl = "",
+  brandText = "KUPTO",
+  align = "left",
+  logoHeight = 52,
+  brandSize = 34,
+}) => {
+  const safeLogo = escapeHtml(logoUrl || "");
+  const safeBrand = escapeHtml(brandText || "KUPTO");
+
+  if (safeLogo) {
+    return `
+      <div style="text-align:${align};">
+        <img
+          src="${safeLogo}"
+          alt="${safeBrand}"
+          style="display:block; height:${Number(logoHeight) || 52}px; width:auto; max-width:220px;"
+        />
+      </div>
+    `;
+  }
+
+  return `
+    <div style="text-align:${align}; font-size:${Number(brandSize) || 34}px; font-weight:800; letter-spacing:0.5px; color:#111;">
+      ${safeBrand}
+    </div>
+  `;
+};
+
+const EMAIL_FONT_FAMILY = `"TT Travels Next", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+
 const PAYMENT_METHODS = ["cashOnDelivery", "airtelMoney", "mtnMomo"];
 
 const getPaymentMethodLabel = (method = "") => {
@@ -313,6 +352,7 @@ const generateAdminOrderNotificationHtml = (
   const transactionId = paymentInfo?.transactionId
     ? escapeHtml(paymentInfo.transactionId)
     : "";
+  const logoUrl = getEmailLogoUrl();
 
   const itemsHtml = (Array.isArray(orderItems) ? orderItems : [])
     .map((item) => {
@@ -361,12 +401,23 @@ const generateAdminOrderNotificationHtml = (
     .join("");
 
   return `
-    <div style="font-family: Arial, Helvetica, sans-serif; color:#111; max-width: 760px; margin: 0 auto; padding: 18px;">
-      <div style="padding: 18px; border: 1px solid #eee; border-radius: 12px;">
-        <h1 style="margin: 0 0 12px; font-size: 22px;">New Order Received</h1>
+    <div style="font-family:${EMAIL_FONT_FAMILY}; color:#111; max-width:760px; margin:0 auto; padding:18px; background:#f7f7f7;">
+      <div style="background:#ffffff; padding:18px; border:1px solid #eee; border-radius:12px;">
+        <div style="padding-bottom:16px; border-bottom:1px solid #f0f0f0; margin-bottom:16px;">
+          ${getEmailBrandHeaderHtml({
+            logoUrl,
+            brandText: "KUPTO",
+            align: "left",
+            logoHeight: 48,
+            brandSize: 28,
+          })}
+        </div>
 
-        <div style="font-size: 13px; color:#222; line-height:1.8;">
+        <h1 style="margin:0 0 12px; font-size:22px;">New Order Received</h1>
+
+        <div style="font-size:13px; color:#222; line-height:1.8;">
           <div><strong>Order ID:</strong> ${escapeHtml(order?._id || "")}</div>
+          <div><strong>Order Number:</strong> ${escapeHtml(buildOrderNumber(order))}</div>
           <div><strong>Customer:</strong> ${escapeHtml(
             shippingInfo?.firstName || ""
           )} ${escapeHtml(shippingInfo?.lastName || "")}</div>
@@ -403,9 +454,9 @@ const generateAdminOrderNotificationHtml = (
           }
         </div>
 
-        <hr style="border:none; border-top:1px solid #eee; margin: 16px 0;" />
+        <hr style="border:none; border-top:1px solid #eee; margin:16px 0;" />
 
-        <h3 style="margin: 0 0 10px; font-size: 16px;">Ordered Items</h3>
+        <h3 style="margin:0 0 10px; font-size:16px;">Ordered Items</h3>
 
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
           <thead>
@@ -479,6 +530,7 @@ const generateOrderConfirmationHtml = (
   const firstItemImage = getEmailItemImage(firstItem);
   const firstItemTitle = escapeHtml(getEmailItemTitle(firstItem));
   const totalItems = Array.isArray(orderItems) ? orderItems.length : 0;
+  const logoUrl = getEmailLogoUrl();
 
   const itemRows = (Array.isArray(orderItems) ? orderItems : [])
     .map((item) => {
@@ -552,13 +604,17 @@ const generateOrderConfirmationHtml = (
 
   return `
   <div style="margin:0; padding:0; background:#f5f5f5;">
-    <div style="max-width:760px; margin:0 auto; padding:24px 12px; font-family:Arial, Helvetica, sans-serif; color:#111;">
+    <div style="max-width:760px; margin:0 auto; padding:24px 12px; font-family:${EMAIL_FONT_FAMILY}; color:#111;">
       <div style="background:#ffffff; border-radius:14px; overflow:hidden; border:1px solid #ececec;">
 
         <div style="padding:28px 28px 18px; border-bottom:1px solid #f0f0f0;">
-          <div style="font-size:34px; font-weight:800; letter-spacing:0.5px; color:#111;">
-            KUPTO
-          </div>
+          ${getEmailBrandHeaderHtml({
+            logoUrl,
+            brandText: "KUPTO",
+            align: "left",
+            logoHeight: 54,
+            brandSize: 34,
+          })}
         </div>
 
         <div style="padding:28px;">
@@ -667,7 +723,7 @@ const generateOrderConfirmationHtml = (
             Thanks for choosing Kupto!
           </div>
 
-          <div style="font-size:28px; font-weight:700; font-family:cursive; color:#111; margin-bottom:20px;">
+          <div style="font-size:28px; font-weight:700; color:#111; margin-bottom:20px;">
             Kupto Team
           </div>
 
@@ -825,7 +881,6 @@ const googleLoginCtrl = asyncHandler(async (req, res) => {
     throw new Error("Account is blocked");
   }
 
-  // ✅ attach google info to an existing account if missing
   let changed = false;
   if (googleId && !user.googleId) {
     user.googleId = googleId;
@@ -1600,7 +1655,21 @@ const createOrder = asyncHandler(async (req, res) => {
       : computedTotalPrice;
 
   const now = new Date();
-  const estimateEnd = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+
+  // ✅ Delivery can be within a day, if too long at most 2 days
+  const deliveryEstimateStart = new Date(now);
+  if (safeShipping.deliveryMethod === "pickup") {
+    deliveryEstimateStart.setDate(deliveryEstimateStart.getDate() + 1);
+  } else {
+    deliveryEstimateStart.setDate(deliveryEstimateStart.getDate() + 1);
+  }
+
+  const deliveryEstimateEnd = new Date(now);
+  if (safeShipping.deliveryMethod === "pickup") {
+    deliveryEstimateEnd.setDate(deliveryEstimateEnd.getDate() + 1);
+  } else {
+    deliveryEstimateEnd.setDate(deliveryEstimateEnd.getDate() + 2);
+  }
 
   const order = await Order.create({
     user: userId,
@@ -1620,8 +1689,8 @@ const createOrder = asyncHandler(async (req, res) => {
 
     orderNumber: uniqid().toUpperCase(),
     trackingNumber: `KP-${uniqid().toUpperCase()}`,
-    deliveryEstimateStart: now,
-    deliveryEstimateEnd: estimateEnd,
+    deliveryEstimateStart,
+    deliveryEstimateEnd,
   });
 
   const receiptTo = (await User.findById(userId).select("email"))?.email || null;
@@ -1841,7 +1910,7 @@ const sendVerificationCodeCtrl = asyncHandler(async (req, res) => {
       to: normalized,
       subject: "Kupto verification code",
       text: `Your Kupto verification code is ${code}. It expires in 10 minutes.`,
-      html: `<p>Your Kupto verification code is <b>${code}</b>. It expires in 10 minutes.</p>`,
+      html: `<div style="font-family:${EMAIL_FONT_FAMILY};"><p>Your Kupto verification code is <b>${code}</b>. It expires in 10 minutes.</p></div>`,
     });
 
     return res.status(200).json({
@@ -1929,7 +1998,7 @@ const forgotPasswordCode = asyncHandler(async (req, res) => {
     to: email,
     subject: "Kupto password reset code",
     text: `Your Kupto password reset code is ${code}. It expires in 10 minutes.`,
-    html: `<p>Your Kupto password reset code is <b>${code}</b>. It expires in 10 minutes.</p>`,
+    html: `<div style="font-family:${EMAIL_FONT_FAMILY};"><p>Your Kupto password reset code is <b>${code}</b>. It expires in 10 minutes.</p></div>`,
   });
 
   return okGenericForgotResponse(res);
