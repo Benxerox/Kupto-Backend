@@ -34,10 +34,10 @@ const orderItemSchema = new mongoose.Schema(
 
     quantity: { type: Number, required: true, min: 1 },
 
-    // ✅ Exact unit price used at checkout (product + print unit)
+    // Exact unit price used at checkout
     unitPrice: { type: Number, required: true, min: 0 },
 
-    // ✅ Optional print breakdown
+    // Optional print breakdown
     printUnitPrice: { type: Number, default: 0, min: 0 },
     printPricingTitle: { type: String, default: null, trim: true },
     printSide: {
@@ -53,21 +53,21 @@ const orderItemSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
-    // ✅ Logged-in user optional
+    // Logged-in user optional
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
     },
 
-    // ✅ Guest info for guest checkout
+    // Guest info for guest checkout
     guestInfo: {
       fullName: { type: String, trim: true, default: null },
       phone: { type: String, trim: true, default: null },
       email: { type: String, trim: true, lowercase: true, default: null },
     },
 
-    // ✅ Shipping + contact info
+    // Shipping + contact info
     shippingInfo: {
       firstName: { type: String, required: true, trim: true },
       lastName: { type: String, required: true, trim: true },
@@ -79,7 +79,6 @@ const orderSchema = new mongoose.Schema(
       region: { type: String, required: true, trim: true },
       subRegion: { type: String, trim: true, default: "" },
 
-      // ✅ Optional delivery helper fields
       deliveryMethod: {
         type: String,
         enum: ["delivery", "pickup"],
@@ -90,7 +89,6 @@ const orderSchema = new mongoose.Schema(
     },
 
     paymentInfo: {
-      // ✅ Updated to your 3 frontend payment methods
       paymentMethod: {
         type: String,
         enum: ["cashOnDelivery", "airtelMoney", "mtnMomo"],
@@ -105,42 +103,69 @@ const orderSchema = new mongoose.Schema(
         trim: true,
       },
 
-      // ✅ Mobile money provider auto-maps to Airtel / MTN when needed
       provider: {
         type: String,
         enum: ["MTN", "Airtel", null],
         default: null,
       },
 
-      // ✅ Optional mobile money transaction reference
       transactionId: { type: String, default: null, trim: true },
     },
 
     note: { type: String, default: null, trim: true },
 
-    // ✅ Items
+    // Items
     orderItems: { type: [orderItemSchema], required: true, default: [] },
 
-    // ✅ Totals
+    // Totals
     itemsTotal: { type: Number, required: true, min: 0 },
     shippingPrice: { type: Number, required: true, min: 0, default: 0 },
     setupFeeTotal: { type: Number, required: true, min: 0, default: 0 },
 
-    // ✅ Grand totals
+    // Grand totals
     totalPrice: { type: Number, required: true, min: 0 },
     totalPriceAfterDiscount: { type: Number, required: true, min: 0 },
 
-    // ✅ Payment state
+    // New fields for confirmation email / tracking
+    orderNumber: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      uppercase: true,
+      index: true,
+    },
+
+    trackingNumber: {
+      type: String,
+      default: null,
+      trim: true,
+      uppercase: true,
+      index: true,
+      sparse: true,
+    },
+
+    deliveryEstimateStart: {
+      type: Date,
+      default: null,
+    },
+
+    deliveryEstimateEnd: {
+      type: Date,
+      default: null,
+    },
+
+    // Payment state
     isPaid: { type: Boolean, default: false },
     paidAt: { type: Date, default: null },
 
-    // ✅ Cancellation
+    // Cancellation
     isCancelled: { type: Boolean, default: false },
     cancelledAt: { type: Date, default: null },
     cancelReason: { type: String, default: null, trim: true },
     cancelledBy: { type: String, enum: ["user", "admin"], default: null },
 
-    // ✅ Month tracking
+    // Month tracking
     month: {
       type: Number,
       min: 1,
@@ -148,7 +173,7 @@ const orderSchema = new mongoose.Schema(
       default: () => new Date().getMonth() + 1,
     },
 
-    // ✅ Order status
+    // Order status
     orderStatus: {
       type: String,
       enum: ["Ordered", "Shipped", "Delivered", "Cancelled"],
@@ -159,7 +184,7 @@ const orderSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// ✅ Enforce month from createdAt
+// Enforce month from createdAt
 orderSchema.pre("save", function (next) {
   if (this.isNew && this.createdAt) {
     this.month = new Date(this.createdAt).getMonth() + 1;
@@ -167,7 +192,7 @@ orderSchema.pre("save", function (next) {
   next();
 });
 
-// ✅ Auto-map provider from selected payment method
+// Auto-map provider from selected payment method
 orderSchema.pre("validate", function (next) {
   if (this.paymentInfo?.paymentMethod === "airtelMoney") {
     this.paymentInfo.provider = "Airtel";
@@ -181,7 +206,7 @@ orderSchema.pre("validate", function (next) {
   next();
 });
 
-// ✅ Safety validation: either logged-in user OR guest contact must exist
+// Safety validation: either logged-in user OR guest contact must exist
 orderSchema.pre("validate", function (next) {
   if (!this.user) {
     const g = this.guestInfo || {};
@@ -196,7 +221,7 @@ orderSchema.pre("validate", function (next) {
   next();
 });
 
-// ✅ Pickup validation
+// Pickup validation
 orderSchema.pre("validate", function (next) {
   const shipping = this.shippingInfo || {};
 
@@ -209,6 +234,21 @@ orderSchema.pre("validate", function (next) {
     }
   }
 
+  next();
+});
+
+// Delivery estimate validation
+orderSchema.pre("validate", function (next) {
+  if (
+    this.deliveryEstimateStart &&
+    this.deliveryEstimateEnd &&
+    this.deliveryEstimateEnd < this.deliveryEstimateStart
+  ) {
+    this.invalidate(
+      "deliveryEstimateEnd",
+      "deliveryEstimateEnd cannot be earlier than deliveryEstimateStart."
+    );
+  }
   next();
 });
 

@@ -17,7 +17,7 @@ var userSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // ✅ optional email (unique only if provided)
+    // optional email (unique only if provided)
     email: {
       type: String,
       lowercase: true,
@@ -26,7 +26,7 @@ var userSchema = new mongoose.Schema(
       sparse: true, // allows multiple users without email
     },
 
-    // ✅ required phone
+    // required phone
     mobile: {
       type: String,
       required: true,
@@ -40,7 +40,7 @@ var userSchema = new mongoose.Schema(
       default: null,
     },
 
-    // ✅ google auth support
+    // google auth support
     provider: {
       type: String,
       default: "local",
@@ -49,9 +49,10 @@ var userSchema = new mongoose.Schema(
 
     googleId: {
       type: String,
-      default: "",
+      default: undefined,
       index: true,
       sparse: true,
+      trim: true,
     },
 
     picture: {
@@ -60,7 +61,7 @@ var userSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // ✅ password required only for non-google accounts
+    // password required only for non-google accounts
     password: {
       type: String,
       required: function () {
@@ -86,6 +87,8 @@ var userSchema = new mongoose.Schema(
 
     address: {
       type: String,
+      default: "",
+      trim: true,
     },
 
     wishlist: [
@@ -96,7 +99,7 @@ var userSchema = new mongoose.Schema(
     ],
 
     /**
-     * ✅ NEW MULTI DEVICE LOGIN SUPPORT
+     * NEW MULTI DEVICE LOGIN SUPPORT
      * Each device/browser gets its own refresh token
      */
     refreshTokens: {
@@ -105,7 +108,7 @@ var userSchema = new mongoose.Schema(
     },
 
     /**
-     * ⚠️ LEGACY TOKEN (for old users)
+     * LEGACY TOKEN (for old users)
      * kept temporarily so old sessions still work
      */
     refreshToken: {
@@ -124,15 +127,23 @@ var userSchema = new mongoose.Schema(
 );
 
 /* =========================================================
+   NORMALIZE OPTIONAL FIELDS
+========================================================= */
+userSchema.pre("save", function (next) {
+  if (this.email === "") this.email = undefined;
+  if (this.googleId === "") this.googleId = undefined;
+  next();
+});
+
+/* =========================================================
    PASSWORD HASH
 ========================================================= */
-
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) {
     return next();
   }
 
-  // ✅ skip hashing if google account has no password
+  // skip hashing if google account has no password
   if (!this.password) {
     return next();
   }
@@ -140,13 +151,16 @@ userSchema.pre("save", async function (next) {
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 
+  if (!this.isNew) {
+    this.passwordChangedAt = new Date(Date.now() - 1000);
+  }
+
   next();
 });
 
 /* =========================================================
    PASSWORD COMPARE
 ========================================================= */
-
 userSchema.methods.isPasswordMatched = async function (enteredPassword) {
   if (!this.password) return false;
   return await bcrypt.compare(enteredPassword, this.password);
@@ -155,7 +169,6 @@ userSchema.methods.isPasswordMatched = async function (enteredPassword) {
 /* =========================================================
    PASSWORD RESET TOKEN
 ========================================================= */
-
 userSchema.methods.createPasswordResetToken = async function () {
   const resetToken = crypto.randomBytes(32).toString("hex");
 
@@ -172,5 +185,4 @@ userSchema.methods.createPasswordResetToken = async function () {
 /* =========================================================
    EXPORT MODEL
 ========================================================= */
-
 module.exports = mongoose.model("User", userSchema);

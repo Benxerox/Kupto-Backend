@@ -140,6 +140,79 @@ const getMobileMoneyProviderFromMethod = (method = "") => {
   return null;
 };
 
+const formatOrderDatePretty = (value) => {
+  const d = value ? new Date(value) : new Date();
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+const formatOrderDateRange = (startValue, endValue) => {
+  const start = startValue ? new Date(startValue) : null;
+  const end = endValue ? new Date(endValue) : null;
+
+  if (start && !Number.isNaN(start.getTime()) && end && !Number.isNaN(end.getTime())) {
+    const s = start.toLocaleDateString("en-GB");
+    const e = end.toLocaleDateString("en-GB");
+    return `${s} and ${e}`;
+  }
+
+  if (start && !Number.isNaN(start.getTime())) {
+    return start.toLocaleDateString("en-GB");
+  }
+
+  return "soon";
+};
+
+const buildOrderNumber = (order) => {
+  return String(order?.orderNumber || order?._id || "").toUpperCase();
+};
+
+const buildTrackingNumber = (order) => {
+  if (order?.trackingNumber) return String(order.trackingNumber);
+
+  const shortId = String(order?._id || "").slice(-6).toUpperCase();
+  const orderNo = String(order?.orderNumber || order?._id || "")
+    .slice(-8)
+    .toUpperCase();
+
+  if (!orderNo && !shortId) return "";
+  return `KP-${orderNo || "ORDER"}-${shortId || "000000"}`;
+};
+
+const getEmailItemImage = (item) => {
+  if (item?.variantImage) return String(item.variantImage);
+
+  const product = item?.product;
+  if (!product || typeof product !== "object") return "";
+
+  const imgs = Array.isArray(product.images) ? product.images : [];
+  if (!imgs.length) return "";
+
+  const first = imgs[0];
+  if (typeof first === "string") return first;
+  if (first && typeof first === "object") return first.url || "";
+
+  return "";
+};
+
+const getEmailItemTitle = (item) => {
+  const product = item?.product;
+  if (!product) return "Product";
+  if (typeof product === "object") return product.title || product.name || "Product";
+  return "Product";
+};
+
+const getVariantText = (value) => {
+  if (!value) return "";
+  if (typeof value === "object") return value.title || value.name || value.label || "";
+  return String(value);
+};
+
 /* =========================================================
    ✅ REFRESH TOKEN HELPERS (MULTI-DEVICE SAFE)
 ========================================================= */
@@ -354,6 +427,257 @@ const generateAdminOrderNotificationHtml = (
         </table>
       </div>
     </div>
+  `;
+};
+
+/* =========================================================
+   ✅ ORDER CONFIRMATION HTML (CLIENT EMAIL)
+========================================================= */
+const generateOrderConfirmationHtml = (
+  order,
+  shippingInfo = {},
+  orderItems = [],
+  totalPrice = 0,
+  paymentInfo = {}
+) => {
+  const orderNumber = escapeHtml(buildOrderNumber(order));
+  const trackingNumber = escapeHtml(buildTrackingNumber(order));
+
+  const customerName = escapeHtml(
+    `${shippingInfo?.firstName || ""} ${shippingInfo?.lastName || ""}`.trim() || "Customer"
+  );
+
+  const deliveryText = escapeHtml(
+    formatOrderDateRange(
+      order?.deliveryEstimateStart || order?.estimatedDeliveryDate || order?.createdAt,
+      order?.deliveryEstimateEnd || order?.estimatedDeliveryDate || order?.createdAt
+    )
+  );
+
+  const expectedByText = escapeHtml(
+    formatOrderDatePretty(
+      order?.deliveryEstimateEnd || order?.estimatedDeliveryDate || order?.createdAt
+    )
+  );
+
+  const paymentLabel = escapeHtml(
+    getPaymentMethodLabel(paymentInfo?.paymentMethod || "")
+  );
+
+  const itemsTotal = Array.isArray(orderItems)
+    ? orderItems.reduce((sum, item) => {
+        const qty = Math.max(1, Number(item?.quantity || 1));
+        const unit = Number(item?.unitPrice || 0);
+        return sum + qty * unit;
+      }, 0)
+    : 0;
+
+  const shippingFee = Math.max(0, Number(order?.shippingPrice || 0));
+  const discountAmount = 0;
+
+  const firstItem = Array.isArray(orderItems) && orderItems.length ? orderItems[0] : null;
+  const firstItemImage = getEmailItemImage(firstItem);
+  const firstItemTitle = escapeHtml(getEmailItemTitle(firstItem));
+  const totalItems = Array.isArray(orderItems) ? orderItems.length : 0;
+
+  const itemRows = (Array.isArray(orderItems) ? orderItems : [])
+    .map((item) => {
+      const title = escapeHtml(getEmailItemTitle(item));
+      const qty = Math.max(1, Number(item?.quantity || 1));
+      const unitPrice = Number(item?.unitPrice || 0);
+      const color = escapeHtml(getVariantText(item?.color) || "");
+      const size = escapeHtml(getVariantText(item?.size) || "");
+      const instruction = escapeHtml(item?.instruction || "");
+      const printSide =
+        item?.printSide === "oneSide"
+          ? "One side"
+          : item?.printSide === "twoSide"
+          ? "Two side"
+          : "";
+      const printPricingTitle = escapeHtml(item?.printPricingTitle || "");
+      const imageUrl = getEmailItemImage(item);
+
+      return `
+        <tr>
+          <td style="padding:16px 12px; border-bottom:1px solid #eee; vertical-align:top;">
+            <div style="display:flex; gap:12px; align-items:flex-start;">
+              <div style="width:88px; min-width:88px; height:88px; border-radius:8px; overflow:hidden; border:1px solid #eee; background:#fff;">
+                ${
+                  imageUrl
+                    ? `<img src="${escapeHtml(imageUrl)}" alt="${title}" style="width:100%; height:100%; object-fit:contain; display:block;" />`
+                    : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:12px; color:#999;">No image</div>`
+                }
+              </div>
+
+              <div style="flex:1;">
+                <div style="font-size:16px; font-weight:700; color:#111; margin-bottom:6px;">
+                  ${title}
+                </div>
+
+                ${
+                  color || size || instruction || printPricingTitle || printSide
+                    ? `<div style="font-size:13px; color:#666; line-height:1.6;">
+                        ${color ? `<div><strong>Color:</strong> ${color}</div>` : ""}
+                        ${size ? `<div><strong>Size:</strong> ${size}</div>` : ""}
+                        ${
+                          printPricingTitle || printSide
+                            ? `<div><strong>Printing:</strong> ${printPricingTitle || "Print"}${
+                                printSide ? ` • ${printSide}` : ""
+                              }</div>`
+                            : ""
+                        }
+                        ${
+                          instruction
+                            ? `<div><strong>Instructions:</strong> ${instruction}</div>`
+                            : ""
+                        }
+                      </div>`
+                    : ""
+                }
+              </div>
+            </div>
+          </td>
+
+          <td style="padding:16px 12px; border-bottom:1px solid #eee; text-align:center; vertical-align:middle; font-size:16px; color:#111;">
+            ${qty}
+          </td>
+
+          <td style="padding:16px 12px; border-bottom:1px solid #eee; text-align:right; vertical-align:middle; font-size:16px; font-weight:700; color:#111;">
+            ${escapeHtml(formatUGX(unitPrice))}
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  return `
+  <div style="margin:0; padding:0; background:#f5f5f5;">
+    <div style="max-width:760px; margin:0 auto; padding:24px 12px; font-family:Arial, Helvetica, sans-serif; color:#111;">
+      <div style="background:#ffffff; border-radius:14px; overflow:hidden; border:1px solid #ececec;">
+
+        <div style="padding:28px 28px 18px; border-bottom:1px solid #f0f0f0;">
+          <div style="font-size:34px; font-weight:800; letter-spacing:0.5px; color:#111;">
+            KUPTO
+          </div>
+        </div>
+
+        <div style="padding:28px;">
+          <div style="font-size:18px; color:#222; margin-bottom:10px;">
+            Hi ${customerName},
+          </div>
+
+          <div style="font-size:34px; line-height:1.2; font-weight:800; color:#111; margin-bottom:14px;">
+            Your order has been confirmed.
+          </div>
+
+          <div style="font-size:17px; line-height:1.7; color:#333; margin-bottom:24px;">
+            Thank you for shopping with Kupto. Your order
+            <strong>${orderNumber}</strong> has been confirmed.<br />
+            We'll deliver your package to your address between
+            <strong>${deliveryText}</strong>. You'll get a notification when it's out for delivery.
+          </div>
+
+          <div style="background:#f7f7f7; border:1px solid #ececec; border-radius:16px; padding:22px; margin-bottom:28px;">
+            <div style="display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start;">
+              <div style="width:90px; height:90px; border-radius:10px; overflow:hidden; border:1px solid #e8e8e8; background:#fff;">
+                ${
+                  firstItemImage
+                    ? `<img src="${escapeHtml(firstItemImage)}" alt="${firstItemTitle}" style="width:100%; height:100%; object-fit:contain; display:block;" />`
+                    : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#999; font-size:12px;">No image</div>`
+                }
+              </div>
+
+              <div style="flex:1; min-width:230px;">
+                <div style="font-size:22px; font-weight:700; color:#111; margin-bottom:6px;">
+                  ${firstItemTitle}
+                </div>
+                <div style="font-size:15px; color:#666; margin-bottom:16px;">
+                  ${totalItems} item${totalItems === 1 ? "" : "s"} from Kupto
+                </div>
+
+                <div style="font-size:56px; line-height:1.05; font-weight:300; color:#111; margin-bottom:18px;">
+                  Expected by ${expectedByText}
+                </div>
+
+                <div style="font-size:16px; color:#555;">
+                  Confirmed • Estimate from Kupto
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:22px; display:flex; gap:20px; flex-wrap:wrap;">
+              <div style="min-width:220px;">
+                <div style="font-size:13px; color:#666; margin-bottom:4px;">Order number</div>
+                <div style="font-size:24px; font-weight:700; color:#111;">${orderNumber}</div>
+              </div>
+
+              <div style="min-width:220px;">
+                <div style="font-size:13px; color:#666; margin-bottom:4px;">Tracking number</div>
+                <div style="font-size:22px; font-weight:700; color:#111;">${trackingNumber}</div>
+              </div>
+            </div>
+          </div>
+
+          <table style="width:100%; border-collapse:collapse; margin-bottom:20px;">
+            <thead>
+              <tr style="background:#f2e4cf;">
+                <th style="padding:14px 12px; text-align:left; font-size:14px; color:#222;">ITEM</th>
+                <th style="padding:14px 12px; text-align:center; font-size:14px; color:#222; width:90px;">QTY</th>
+                <th style="padding:14px 12px; text-align:right; font-size:14px; color:#222; width:140px;">PRICE</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemRows || `
+                <tr>
+                  <td colspan="3" style="padding:18px; border-bottom:1px solid #eee; color:#777;">
+                    No items found.
+                  </td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+
+          <table style="width:100%; border-collapse:collapse; margin-bottom:26px;">
+            <tr>
+              <td style="padding:12px 16px; border:1px solid #eee; border-bottom:none; font-size:15px; color:#222;">Delivery Fees</td>
+              <td style="padding:12px 16px; border:1px solid #eee; border-bottom:none; text-align:right; font-size:15px; color:#222;">${escapeHtml(formatUGX(shippingFee))}</td>
+            </tr>
+
+            <tr>
+              <td style="padding:12px 16px; border-left:1px solid #eee; border-right:1px solid #eee; border-bottom:none; font-size:15px; color:#222;">Discount</td>
+              <td style="padding:12px 16px; border-left:1px solid #eee; border-right:1px solid #eee; border-bottom:none; text-align:right; font-size:15px; color:#d28b00;">- ${escapeHtml(formatUGX(discountAmount))}</td>
+            </tr>
+
+            <tr>
+              <td style="padding:14px 16px; border:1px solid #eee; font-size:18px; font-weight:800; color:#111;">Total</td>
+              <td style="padding:14px 16px; border:1px solid #eee; text-align:right; font-size:20px; font-weight:800; color:#16a34a;">${escapeHtml(formatUGX(totalPrice || (itemsTotal + shippingFee)))}</td>
+            </tr>
+
+            <tr>
+              <td style="padding:14px 16px; border:1px solid #eee; border-top:none; font-size:15px; color:#222;">Payment Method</td>
+              <td style="padding:14px 16px; border:1px solid #eee; border-top:none; text-align:right; font-size:15px; color:#222;">${paymentLabel}</td>
+            </tr>
+          </table>
+
+          <div style="font-size:15px; color:#444; margin-bottom:10px;">
+            If you need help, please contact our support team.
+          </div>
+
+          <div style="font-size:15px; color:#444; margin-bottom:18px;">
+            Thanks for choosing Kupto!
+          </div>
+
+          <div style="font-size:28px; font-weight:700; font-family:cursive; color:#111; margin-bottom:20px;">
+            Kupto Team
+          </div>
+
+          <div style="font-size:12px; color:#888; line-height:1.7; border-top:1px solid #f0f0f0; padding-top:18px;">
+            This is an order confirmation email for order <strong>${orderNumber}</strong>.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   `;
 };
 
@@ -1101,223 +1425,6 @@ const emptyCart = asyncHandler(async (req, res) => {
 });
 
 /* =========================================================
-   ✅ RECEIPT HTML (EMAIL)
-========================================================= */
-const generateReceiptHtml = (
-  order,
-  shippingInfo = {},
-  orderItems = [],
-  totalPrice = 0,
-  paymentInfo = {}
-) => {
-  const getProductTitle = (prod) => {
-    if (!prod) return "Product";
-    if (typeof prod === "object") return prod.title || prod.name || "Product";
-    return "Product";
-  };
-
-  const getProductDescription = (prod) => {
-    if (!prod || typeof prod !== "object") return "";
-    return prod.description || "";
-  };
-
-  const getProductImageUrl = (prod) => {
-    if (!prod || typeof prod !== "object") return "";
-    const imgs = Array.isArray(prod.images) ? prod.images : [];
-    if (!imgs.length) return "";
-    const first = imgs[0];
-    if (typeof first === "string") return first;
-    if (first && typeof first === "object") return first.url || "";
-    return "";
-  };
-
-  const getVariantLabel = (v) => {
-    if (!v) return "";
-    if (typeof v === "object") return v.title || v.name || v.label || "";
-    return String(v);
-  };
-
-  const orderId = escapeHtml(order?._id || "");
-  const createdAt = order?.createdAt ? new Date(order.createdAt) : new Date();
-  const orderDate = escapeHtml(createdAt.toLocaleDateString());
-
-  const firstName = escapeHtml(shippingInfo?.firstName || "");
-  const lastName = escapeHtml(shippingInfo?.lastName || "");
-  const phone = escapeHtml(shippingInfo?.phone || "");
-  const email = escapeHtml(shippingInfo?.email || "");
-  const address = escapeHtml(shippingInfo?.address || "Not provided");
-  const region = escapeHtml(shippingInfo?.region || "Not provided");
-  const subRegion = escapeHtml(shippingInfo?.subRegion || "");
-  const deliveryMethod = escapeHtml(
-    shippingInfo?.deliveryMethod === "pickup" ? "Pick Up Station" : "Delivery"
-  );
-  const pickupStation = escapeHtml(shippingInfo?.pickupStation || "");
-
-  const paymentMethod = escapeHtml(
-    getPaymentMethodLabel(paymentInfo?.paymentMethod || "")
-  );
-  const payStatus = escapeHtml(paymentInfo?.status || "Pending");
-  const provider = paymentInfo?.provider
-    ? escapeHtml(paymentInfo.provider)
-    : "";
-  const transactionId = paymentInfo?.transactionId
-    ? escapeHtml(paymentInfo.transactionId)
-    : "";
-
-  const itemsHtml = (Array.isArray(orderItems) ? orderItems : [])
-    .map((item) => {
-      const prod = item?.product;
-
-      const title = escapeHtml(getProductTitle(prod));
-      const desc = escapeHtml(getProductDescription(prod) || "No description available");
-      const imgUrl = getProductImageUrl(prod);
-
-      const qty = escapeHtml(item?.quantity ?? 1);
-      const price = formatUGX(item?.unitPrice);
-
-      const sizeLabel = escapeHtml(getVariantLabel(item?.size) || "Not specified");
-      const colorLabel = escapeHtml(getVariantLabel(item?.color) || "Not specified");
-      const instruction = escapeHtml(item?.instruction || "None");
-      const printPricingTitle = escapeHtml(item?.printPricingTitle || "");
-      const printSide =
-        item?.printSide === "oneSide"
-          ? "One-side"
-          : item?.printSide === "twoSide"
-          ? "Two-side"
-          : "";
-
-      const uploadedFiles = Array.isArray(item?.uploadedFiles) ? item.uploadedFiles : [];
-
-      const filesHtml = uploadedFiles.length
-        ? `<div style="margin-top:8px;">
-             <strong>Artwork Files:</strong>
-             <ul style="margin:6px 0 0 18px; padding:0;">
-               ${uploadedFiles
-                 .map((f) => {
-                   const name = escapeHtml(
-                     f?.fileName ||
-                       f?.original_filename ||
-                       f?.originalFilename ||
-                       (f?.public_id ? String(f.public_id).split("/").pop() : "file")
-                   );
-                   const url = f?.url ? escapeHtml(f.url) : "";
-                   return `<li style="margin:4px 0;">
-                             ${
-                               url
-                                 ? `<a href="${url}" target="_blank" rel="noreferrer">${name}</a>`
-                                 : name
-                             }
-                           </li>`;
-                 })
-                 .join("")}
-             </ul>
-           </div>`
-        : "";
-
-      return `
-        <li style="margin: 16px 0; padding: 14px; border: 1px solid #e9e9e9; border-radius: 10px;">
-          <div style="display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap;">
-            <div style="width: 120px; height: 120px; border: 1px solid #f0f0f0; border-radius: 10px; overflow:hidden; background:#fff; display:flex; align-items:center; justify-content:center;">
-              ${
-                imgUrl
-                  ? `<img src="${escapeHtml(imgUrl)}" alt="${title}" style="width:100%; height:100%; object-fit:contain;" />`
-                  : `<div style="font-size:12px; color:#999; padding:8px; text-align:center;">No image</div>`
-              }
-            </div>
-
-            <div style="flex:1; min-width:220px;">
-              <div style="font-size:16px; font-weight:700; margin-bottom:6px;">${title}</div>
-              <div style="font-size:13px; color:#444; margin-bottom:10px;">${desc}</div>
-
-              <div style="font-size:13px; color:#222; line-height:1.7;">
-                <div><strong>Quantity:</strong> ${qty}</div>
-                <div><strong>Unit Price:</strong> ${escapeHtml(price)}</div>
-                <div><strong>Size:</strong> ${sizeLabel}</div>
-                <div><strong>Color:</strong> ${colorLabel}</div>
-                <div><strong>Instructions:</strong> ${instruction}</div>
-                ${
-                  printPricingTitle || printSide
-                    ? `<div><strong>Printing:</strong> ${printPricingTitle || "—"}${
-                        printSide ? ` • ${escapeHtml(printSide)}` : ""
-                      }</div>`
-                    : ""
-                }
-              </div>
-
-              ${filesHtml}
-            </div>
-          </div>
-        </li>
-      `;
-    })
-    .join("");
-
-  return `
-    <div style="font-family: Arial, Helvetica, sans-serif; color:#111; max-width: 720px; margin: 0 auto; padding: 18px;">
-      <div style="padding: 18px; border: 1px solid #eee; border-radius: 12px;">
-        <h1 style="margin: 0 0 10px; font-size: 22px;">Order Receipt</h1>
-
-        <div style="font-size: 13px; color:#444; line-height:1.7;">
-          <div><strong>Order Number:</strong> ${orderId}</div>
-          <div><strong>Order Date:</strong> ${orderDate}</div>
-        </div>
-
-        <hr style="border:none; border-top:1px solid #eee; margin: 14px 0;" />
-
-        <h3 style="margin: 0 0 8px; font-size: 16px;">Shipping Information</h3>
-        <div style="font-size: 13px; color:#222; line-height:1.7;">
-          <div><strong>Name:</strong> ${firstName} ${lastName}</div>
-          ${phone ? `<div><strong>Phone:</strong> ${phone}</div>` : ""}
-          ${email ? `<div><strong>Email:</strong> ${email}</div>` : ""}
-          <div><strong>Delivery Method:</strong> ${deliveryMethod}</div>
-          ${
-            pickupStation
-              ? `<div><strong>Pick Up Station:</strong> ${pickupStation}</div>`
-              : ""
-          }
-          <div><strong>Address:</strong> ${address}, ${region}${
-    subRegion ? `, ${subRegion}` : ""
-  }</div>
-        </div>
-
-        <hr style="border:none; border-top:1px solid #eee; margin: 14px 0;" />
-
-        <h3 style="margin: 0 0 8px; font-size: 16px;">Order Items</h3>
-        <ul style="list-style:none; margin: 0; padding: 0;">
-          ${itemsHtml || `<li style="color:#777; font-size:13px;">No items found.</li>`}
-        </ul>
-
-        <hr style="border:none; border-top:1px solid #eee; margin: 14px 0;" />
-
-        <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-          <div style="font-size: 13px; color:#222; line-height:1.7;">
-            <div><strong>Payment Method:</strong> ${paymentMethod}</div>
-            <div><strong>Payment Status:</strong> ${payStatus}</div>
-            ${provider ? `<div><strong>Provider:</strong> ${provider}</div>` : ""}
-            ${
-              transactionId
-                ? `<div><strong>Transaction ID:</strong> ${transactionId}</div>`
-                : ""
-            }
-          </div>
-
-          <div style="text-align:right; min-width: 220px;">
-            <div style="font-size: 13px; color:#666;">Total</div>
-            <div style="font-size: 20px; font-weight: 800;">${escapeHtml(
-              formatUGX(totalPrice)
-            )}</div>
-          </div>
-        </div>
-
-        <div style="margin-top: 16px; font-size: 12px; color:#777;">
-          Thank you for your purchase.
-        </div>
-      </div>
-    </div>
-  `;
-};
-
-/* =========================================================
    ✅ ORDERS
 ========================================================= */
 const createOrder = asyncHandler(async (req, res) => {
@@ -1492,6 +1599,9 @@ const createOrder = asyncHandler(async (req, res) => {
       ? Math.max(0, toMoney(totalPriceAfterDiscount))
       : computedTotalPrice;
 
+  const now = new Date();
+  const estimateEnd = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+
   const order = await Order.create({
     user: userId,
     guestInfo: null,
@@ -1507,6 +1617,11 @@ const createOrder = asyncHandler(async (req, res) => {
 
     paymentInfo: safePaymentInfo,
     note: note ?? null,
+
+    orderNumber: uniqid().toUpperCase(),
+    trackingNumber: `KP-${uniqid().toUpperCase()}`,
+    deliveryEstimateStart: now,
+    deliveryEstimateEnd: estimateEnd,
   });
 
   const receiptTo = (await User.findById(userId).select("email"))?.email || null;
@@ -1522,7 +1637,7 @@ const createOrder = asyncHandler(async (req, res) => {
     const populatedOrder = fullOrder || order;
     const populatedItems = populatedOrder?.orderItems || safeOrderItems;
 
-    const receiptHtml = generateReceiptHtml(
+    const confirmationHtml = generateOrderConfirmationHtml(
       populatedOrder,
       safeShipping,
       populatedItems,
@@ -1533,9 +1648,11 @@ const createOrder = asyncHandler(async (req, res) => {
     if (receiptTo) {
       await sendEmail({
         to: receiptTo,
-        subject: "Your Order Receipt",
-        text: "Thank you for your purchase! Please find your receipt below.",
-        html: receiptHtml,
+        subject: `Your Kupto Order ${buildOrderNumber(populatedOrder)} has been Confirmed`,
+        text: `Thank you for shopping with Kupto. Your order ${buildOrderNumber(
+          populatedOrder
+        )} has been confirmed.`,
+        html: confirmationHtml,
       });
     }
 
