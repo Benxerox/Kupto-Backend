@@ -407,9 +407,9 @@ const generateAdminOrderNotificationHtml = (
           ${getEmailBrandHeaderHtml({
             logoUrl,
             brandText: "KUPTO",
-            align: "left",
-            logoHeight: 48,
-            brandSize: 28,
+            align: "center", // ✅ FIXED
+            logoHeight: 54,
+            brandSize: 34,
           })}
         </div>
 
@@ -622,11 +622,11 @@ const generateOrderConfirmationHtml = (
             Hi ${customerName},
           </div>
 
-          <div style="font-size:34px; line-height:1.2; font-weight:800; color:#111; margin-bottom:14px;">
+          <div style="font-size:14px; line-height:1.2; font-weight:700; color:#111; margin-bottom:14px;">
             Your order has been confirmed.
           </div>
 
-          <div style="font-size:17px; line-height:1.7; color:#333; margin-bottom:24px;">
+          <div style="font-size:14px; line-height:1.7; color:#333; margin-bottom:24px;">
             Thank you for shopping with Kupto. Your order
             <strong>${orderNumber}</strong> has been confirmed.<br />
             We'll deliver your package to your address between
@@ -644,7 +644,7 @@ const generateOrderConfirmationHtml = (
               </div>
 
               <div style="flex:1; min-width:230px;">
-                <div style="font-size:22px; font-weight:700; color:#111; margin-bottom:6px;">
+                <div style="font-size:14px; font-weight:700; color:#111; margin-bottom:6px;">
                   ${firstItemTitle}
                 </div>
                 <div style="font-size:15px; color:#666; margin-bottom:16px;">
