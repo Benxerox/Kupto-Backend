@@ -407,7 +407,7 @@ const generateAdminOrderNotificationHtml = (
           ${getEmailBrandHeaderHtml({
             logoUrl,
             brandText: "KUPTO",
-            align: "center", // ✅ FIXED
+            align: "center",
             logoHeight: 54,
             brandSize: 34,
           })}
@@ -1656,20 +1656,12 @@ const createOrder = asyncHandler(async (req, res) => {
 
   const now = new Date();
 
-  // ✅ Delivery can be within a day, if too long at most 2 days
+  // ✅ Delivery estimate adjusted to 1 to 3 days
   const deliveryEstimateStart = new Date(now);
-  if (safeShipping.deliveryMethod === "pickup") {
-    deliveryEstimateStart.setDate(deliveryEstimateStart.getDate() + 1);
-  } else {
-    deliveryEstimateStart.setDate(deliveryEstimateStart.getDate() + 1);
-  }
+  deliveryEstimateStart.setDate(deliveryEstimateStart.getDate() + 1);
 
   const deliveryEstimateEnd = new Date(now);
-  if (safeShipping.deliveryMethod === "pickup") {
-    deliveryEstimateEnd.setDate(deliveryEstimateEnd.getDate() + 1);
-  } else {
-    deliveryEstimateEnd.setDate(deliveryEstimateEnd.getDate() + 2);
-  }
+  deliveryEstimateEnd.setDate(deliveryEstimateEnd.getDate() + 3);
 
   const order = await Order.create({
     user: userId,
