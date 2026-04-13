@@ -1617,12 +1617,11 @@ const createOrder = asyncHandler(async (req, res) => {
 
   const now = new Date();
 
-  // ✅ Delivery estimate adjusted to 1 to 3 days
+    // ✅ Delivery estimate can start the same day the order is placed
   const deliveryEstimateStart = new Date(now);
-  deliveryEstimateStart.setDate(deliveryEstimateStart.getDate() + 1);
 
   const deliveryEstimateEnd = new Date(now);
-  deliveryEstimateEnd.setDate(deliveryEstimateEnd.getDate() + 3);
+  deliveryEstimateEnd.setDate(deliveryEstimateEnd.getDate() + 2);
 
   const order = await Order.create({
     user: userId,
