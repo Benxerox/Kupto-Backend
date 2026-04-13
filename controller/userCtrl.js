@@ -553,7 +553,7 @@ const generateOrderConfirmationHtml = (
         <tr>
           <td style="padding:16px 12px; border-bottom:1px solid #eee; vertical-align:top;">
             <div style="display:flex; gap:12px; align-items:flex-start;">
-              <div style="width:88px; min-width:88px; height:88px; border-radius:8px; overflow:hidden; border:1px solid #eee; background:#fff;">
+             <div style="width:88px; min-width:88px; height:88px; margin-right:12px; border-radius:8px; overflow:hidden; border:1px solid #eee; background:#fff;">
                 ${
                   imageUrl
                     ? `<img src="${escapeHtml(imageUrl)}" alt="${title}" style="width:100%; height:100%; object-fit:contain; display:block;" />`
@@ -633,46 +633,7 @@ const generateOrderConfirmationHtml = (
             <strong>${deliveryText}</strong>. You'll get a notification when it's out for delivery.
           </div>
 
-          <div style="background:#f7f7f7; border:1px solid #ececec; border-radius:16px; padding:22px; margin-bottom:28px;">
-            <div style="display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start;">
-              <div style="width:90px; height:90px; border-radius:10px; overflow:hidden; border:1px solid #e8e8e8; background:#fff;">
-                ${
-                  firstItemImage
-                    ? `<img src="${escapeHtml(firstItemImage)}" alt="${firstItemTitle}" style="width:100%; height:100%; object-fit:contain; display:block;" />`
-                    : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#999; font-size:12px;">No image</div>`
-                }
-              </div>
-
-              <div style="flex:1; min-width:230px;">
-                <div style="font-size:14px; font-weight:700; color:#111; margin-bottom:6px;">
-                  ${firstItemTitle}
-                </div>
-                <div style="font-size:15px; color:#666; margin-bottom:16px;">
-                  ${totalItems} item${totalItems === 1 ? "" : "s"} from Kupto
-                </div>
-
-                <div style="font-size:56px; line-height:1.05; font-weight:300; color:#111; margin-bottom:18px;">
-                  Expected by ${expectedByText}
-                </div>
-
-                <div style="font-size:16px; color:#555;">
-                  Confirmed • Estimate from Kupto
-                </div>
-              </div>
-            </div>
-
-            <div style="margin-top:22px; display:flex; gap:20px; flex-wrap:wrap;">
-              <div style="min-width:220px;">
-                <div style="font-size:13px; color:#666; margin-bottom:4px;">Order number</div>
-                <div style="font-size:24px; font-weight:700; color:#111;">${orderNumber}</div>
-              </div>
-
-              <div style="min-width:220px;">
-                <div style="font-size:13px; color:#666; margin-bottom:4px;">Tracking number</div>
-                <div style="font-size:22px; font-weight:700; color:#111;">${trackingNumber}</div>
-              </div>
-            </div>
-          </div>
+          
 
           <table style="width:100%; border-collapse:collapse; margin-bottom:20px;">
             <thead>
