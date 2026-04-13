@@ -7,6 +7,7 @@ const {
 } = require("../utils/cloudinary");
 
 const fs = require("fs");
+const axios = require("axios");
 const asyncHandler = require("express-async-handler");
 
 /* =========================
@@ -16,14 +17,20 @@ const normalizeDocPublicId = (idOrPublicId = "") => {
   const raw = String(idOrPublicId || "").trim();
   if (!raw) return "";
 
-  // decode values like folders%2Fdocuments%2Ffile-name
   const val = decodeURIComponent(raw);
 
-  // ✅ if client already sends a full public_id, keep it
+  // if full public_id is sent, keep it
   if (val.includes("/")) return val;
 
-  // ✅ fallback for old clients that only send the base id
+  // fallback for older requests
   return `folders/documents/${val}`;
+};
+
+const getSafeDownloadName = (name = "", fallback = "downloaded-file") => {
+  const raw = String(name || "").trim();
+  if (!raw) return fallback;
+
+  return raw.replace(/[/\\?%*:|"<>]/g, "_");
 };
 
 /* =========================
@@ -38,7 +45,6 @@ const uploadImages = asyncHandler(async (req, res) => {
       .json({ message: "No files uploaded. Please upload at least one image." });
   }
 
-  // ✅ allow WEBP too
   const validImageTypes = [
     "image/jpeg",
     "image/png",
@@ -67,10 +73,10 @@ const uploadImages = asyncHandler(async (req, res) => {
     });
 
     const uploadedImages = await Promise.all(uploadPromises);
-    res.json({ uploadedImages });
+    return res.json({ uploadedImages });
   } catch (error) {
     console.error("Error during image upload:", error);
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to upload images.",
       error: error.message || "Unknown error occurred.",
     });
@@ -123,14 +129,12 @@ const uploadFiles = asyncHandler(async (req, res) => {
 
       const { url, public_id } = await cloudinaryUploadFile(filePath, fileName);
 
-      // ✅ cleanup local upload
       try {
         await fs.promises.unlink(filePath);
       } catch (unlinkErr) {
         console.warn("Failed to delete local uploaded file:", unlinkErr.message);
       }
 
-      // ✅ return the real cloudinary public_id
       return { url, public_id, fileName };
     });
 
@@ -147,10 +151,6 @@ const uploadFiles = asyncHandler(async (req, res) => {
 
 /* =========================
    DELETE FILE
-   ✅ Accepts either:
-   - full public_id: folders/documents/company-profile-v2
-   - encoded public_id: folders%2Fdocuments%2Fcompany-profile-v2
-   - or just base id: company-profile-v2
 ========================= */
 const deleteFile = asyncHandler(async (req, res) => {
   const resourceType = req.query.resource_type || "raw";
@@ -186,14 +186,15 @@ const deleteFile = asyncHandler(async (req, res) => {
 
 /* =========================
    DOWNLOAD FILE
-   ✅ Accepts either:
-   - full public_id: folders/documents/company-profile-v2
-   - encoded public_id: folders%2Fdocuments%2Fcompany-profile-v2
-   - or just base id: company-profile-v2
+   streams through backend so filename stays exact
 ========================= */
 const downloadFile = asyncHandler(async (req, res) => {
   const resourceType = req.query.resource_type || "raw";
   const publicId = normalizeDocPublicId(req.params.id);
+  const requestedFileName = getSafeDownloadName(
+    req.query.fileName,
+    publicId.split("/").pop() || "downloaded-file"
+  );
 
   if (!publicId) {
     return res.status(400).json({ message: "No file id provided." });
@@ -209,7 +210,20 @@ const downloadFile = asyncHandler(async (req, res) => {
       });
     }
 
-    return res.redirect(fileUrl);
+    const response = await axios.get(fileUrl, {
+      responseType: "stream",
+    });
+
+    const contentType =
+      response.headers["content-type"] || "application/octet-stream";
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${requestedFileName}"`
+    );
+
+    return response.data.pipe(res);
   } catch (error) {
     console.error("Error during file download:", error);
     return res.status(500).json({
