@@ -143,11 +143,11 @@ const getEmailBrandHeaderHtml = ({
 
   if (safeLogo) {
     return `
-      <div style="text-align:${align};">
+      <div style="text-align:center;">
         <img
           src="${safeLogo}"
           alt="${safeBrand}"
-          style="display:block; height:${Number(logoHeight) || 52}px; width:auto; max-width:220px;"
+          style="display:block; margin:0 auto; height:${Number(logoHeight) || 52}px; width:auto; max-width:220px;"
         />
       </div>
     `;
