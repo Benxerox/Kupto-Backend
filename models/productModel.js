@@ -1,4 +1,3 @@
-// models/productModel.js
 const mongoose = require("mongoose");
 const slugify = require("slugify");
 
@@ -65,16 +64,6 @@ const imageSchema = new mongoose.Schema(
 
 /* =========================
    Color variant pricing schema
-   Each color can have:
-   - optional own price
-   - optional own discountedPrice
-   - optional own discountMinQty
-   - optional own quantity
-   - optional own images
-
-   NOTE:
-   - If color price is null => fallback to product price
-   - If color discountedPrice is null => can fall back to product discountedPrice
 ========================= */
 const colorVariantSchema = new mongoose.Schema(
   {
@@ -84,29 +73,24 @@ const colorVariantSchema = new mongoose.Schema(
       required: true,
     },
 
-    // optional override price for this color
-    // if null => fall back to main product price
     price: {
       type: Number,
       default: null,
       min: 0,
     },
 
-    // optional sale price for this color
     discountedPrice: {
       type: Number,
       default: null,
       min: 0,
     },
 
-    // qty threshold for discountedPrice
     discountMinQty: {
       type: Number,
       default: null,
       min: 1,
     },
 
-    // optional stock quantity per color
     quantity: {
       type: Number,
       default: null,
@@ -131,16 +115,12 @@ const productSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
-      index: true,
     },
 
     description: { type: String, required: true },
 
     /* =========================
        PRICING
-       - price = base (normal) unit price
-       - discountedPrice = sale unit price
-       - discountMinQty = qty at which discountedPrice activates
     ========================= */
     price: { type: Number, required: true, min: 0 },
 
@@ -183,12 +163,10 @@ const productSchema = new mongoose.Schema(
     ========================= */
     category: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
 
-    // store brand title (string)
     brand: { type: String, required: true, trim: true },
 
     tags: [{ type: String, trim: true }],
 
-    // general stock if you are not using per-color stock
     quantity: { type: Number, required: true, min: 0 },
 
     /* =========================
@@ -248,14 +226,6 @@ const productSchema = new mongoose.Schema(
     color: [{ type: mongoose.Schema.Types.ObjectId, ref: "Color" }],
     size: [{ type: mongoose.Schema.Types.ObjectId, ref: "Size" }],
 
-    /**
-     * colorVariants:
-     * Each selected color can have:
-     * - its own price
-     * - its own discount
-     * - its own stock
-     * - its own images
-     */
     colorVariants: {
       type: [colorVariantSchema],
       default: [],
@@ -292,7 +262,6 @@ const productSchema = new mongoose.Schema(
    Indexes
 ========================= */
 productSchema.index({ title: "text", description: "text" });
-productSchema.index({ slug: 1 });
 productSchema.index({ category: 1 });
 productSchema.index({ brand: 1 });
 productSchema.index({ price: 1 });
@@ -418,18 +387,38 @@ productSchema.pre("validate", function (next) {
 });
 
 /* =========================
+   Update-query slug support
+========================= */
+productSchema.pre("findOneAndUpdate", function (next) {
+  const update = this.getUpdate() || {};
+
+  const nextTitle =
+    update.title ??
+    update.$set?.title ??
+    update.$setOnInsert?.title;
+
+  if (nextTitle) {
+    const nextSlug = slugify(String(nextTitle), {
+      lower: true,
+      strict: true,
+      trim: true,
+    });
+
+    if (update.$set) {
+      update.$set.slug = nextSlug;
+    } else {
+      update.slug = nextSlug;
+    }
+
+    this.setUpdate(update);
+  }
+
+  next();
+});
+
+/* =========================
    OPTIONAL: instance helpers
 ========================= */
-
-/**
- * Returns pricing source for a selected color
- * Falls back to product-level pricing if no color override exists
- *
- * Rules:
- * - color price falls back to product price
- * - color discountedPrice falls back to product discountedPrice
- *   only if inherited discountedPrice is still valid for the final price
- */
 productSchema.methods.getColorPricing = function (colorId) {
   const variant =
     Array.isArray(this.colorVariants) && colorId
@@ -487,16 +476,6 @@ productSchema.methods.getColorPricing = function (colorId) {
   };
 };
 
-/**
- * Compute unit price by qty, optionally by color
- * Usage:
- * product.getUnitPriceByQty(5) // product normal logic
- * product.getUnitPriceByQty(5, colorId) // color-specific logic
- *
- * Logic:
- * - if qty >= discountMinQty and discountedPrice exists -> use discountedPrice
- * - otherwise use normal price
- */
 productSchema.methods.getUnitPriceByQty = function (qty = 1, colorId = null) {
   const q = Math.max(1, Number(qty || 1));
 
