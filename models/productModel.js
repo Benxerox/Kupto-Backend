@@ -1,5 +1,6 @@
 // models/productModel.js
 const mongoose = require("mongoose");
+const slugify = require("slugify");
 
 /**
  * Helpers to make validators work on BOTH:
@@ -130,6 +131,7 @@ const productSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
+      index: true,
     },
 
     description: { type: String, required: true },
@@ -290,6 +292,7 @@ const productSchema = new mongoose.Schema(
    Indexes
 ========================= */
 productSchema.index({ title: "text", description: "text" });
+productSchema.index({ slug: 1 });
 productSchema.index({ category: 1 });
 productSchema.index({ brand: 1 });
 productSchema.index({ price: 1 });
@@ -300,6 +303,15 @@ productSchema.index({ "colorVariants.color": 1 });
    Guards / cleanup
 ========================= */
 productSchema.pre("validate", function (next) {
+  // auto-generate slug from title
+  if (this.title) {
+    this.slug = slugify(this.title, {
+      lower: true,
+      strict: true,
+      trim: true,
+    });
+  }
+
   // normalize top-level numeric nullable fields
   this.discountedPrice = toNumberOrNull(this.discountedPrice);
   this.discountMinQty = toNumberOrNull(this.discountMinQty);
@@ -343,39 +355,55 @@ productSchema.pre("validate", function (next) {
   if (Array.isArray(this.colorVariants)) {
     for (const v of this.colorVariants) {
       const variantPrice =
-        v.price !== null && v.price !== undefined ? Number(v.price) : Number(this.price);
+        v.price !== null && v.price !== undefined
+          ? Number(v.price)
+          : Number(this.price);
 
       if (Number.isNaN(variantPrice) || variantPrice < 0) {
-        return next(new Error("Each color variant price must be a valid number >= 0."));
+        return next(
+          new Error("Each color variant price must be a valid number >= 0.")
+        );
       }
 
       if (v.discountedPrice !== null && v.discountedPrice !== undefined) {
         const d = Number(v.discountedPrice);
 
         if (Number.isNaN(d) || d < 0) {
-          return next(new Error("Each color variant discountedPrice must be >= 0."));
+          return next(
+            new Error("Each color variant discountedPrice must be >= 0.")
+          );
         }
 
         if (!(d < variantPrice)) {
           return next(
-            new Error("Each color variant discountedPrice must be less than its variant price.")
+            new Error(
+              "Each color variant discountedPrice must be less than its variant price."
+            )
           );
         }
       }
 
       if (v.discountMinQty !== null && v.discountMinQty !== undefined) {
         if (Number(v.discountMinQty) < 1) {
-          return next(new Error("Each color variant discountMinQty must be >= 1."));
+          return next(
+            new Error("Each color variant discountMinQty must be >= 1.")
+          );
         }
 
         if (v.discountedPrice === null || v.discountedPrice === undefined) {
           return next(
-            new Error("Each color variant discountMinQty requires discountedPrice to be set.")
+            new Error(
+              "Each color variant discountMinQty requires discountedPrice to be set."
+            )
           );
         }
       }
 
-      if (v.quantity !== null && v.quantity !== undefined && Number(v.quantity) < 0) {
+      if (
+        v.quantity !== null &&
+        v.quantity !== undefined &&
+        Number(v.quantity) < 0
+      ) {
         return next(new Error("Each color variant quantity must be >= 0."));
       }
     }

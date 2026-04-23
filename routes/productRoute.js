@@ -1,27 +1,40 @@
-const express = require('express');
-const { createProduct, getaProduct, getAllProduct, updateProduct, deleteProduct, addToWhishlist, rating } = require('../controller/productCtrl');
-const { isAdmin, authMiddleware } = require('../middlewares/authMiddleware');
+const express = require("express");
+const {
+  createProduct,
+  getaProduct,
+  getProductBySlug,
+  getAllProduct,
+  updateProduct,
+  deleteProduct,
+  addToWhishlist,
+  rating,
+} = require("../controller/productCtrl");
+const { isAdmin, authMiddleware } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
-router.post('/', authMiddleware, isAdmin, createProduct);
-//router.post('/upload/:id', authMiddleware, isAdmin, uploadPhoto.array('images', 10), productImgResize, uploadImages);
+router.post("/", authMiddleware, isAdmin, createProduct);
 
-router.get('/', getAllProduct);
-router.get('/:id', getaProduct);
-router.put('/wishlist', authMiddleware, addToWhishlist);
-router.put('/rating', authMiddleware,  rating);
-router.put('/:id', authMiddleware, isAdmin, updateProduct);
-router.delete('/:id', authMiddleware, isAdmin, deleteProduct);
+// router.post(
+//   "/upload/:id",
+//   authMiddleware,
+//   isAdmin,
+//   uploadPhoto.array("images", 10),
+//   productImgResize,
+//   uploadImages
+// );
 
+router.get("/", getAllProduct);
 
+// IMPORTANT: put slug route BEFORE /:id
+router.get("/slug/:slug", getProductBySlug);
 
+router.get("/:id", getaProduct);
 
+router.put("/wishlist", authMiddleware, addToWhishlist);
+router.put("/rating", authMiddleware, rating);
 
-
-
-
-
-
+router.put("/:id", authMiddleware, isAdmin, updateProduct);
+router.delete("/:id", authMiddleware, isAdmin, deleteProduct);
 
 module.exports = router;

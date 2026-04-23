@@ -553,7 +553,7 @@ const deleteProduct = asyncHandler(async (req, res) => {
 });
 
 /* =========================================
-   GET A PRODUCT
+   GET A PRODUCT BY ID
 ========================================= */
 const getaProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -563,6 +563,27 @@ const getaProduct = asyncHandler(async (req, res) => {
     .populate("color")
     .populate("size")
     .populate("category")
+    .populate("printingPrice")
+    .populate({ path: "colorVariants.color", model: "Color" });
+
+  if (!findProduct) {
+    return res.status(404).json({ message: "Product not found" });
+  }
+
+  return res.json({ data: findProduct });
+});
+
+/* =========================================
+   GET A PRODUCT BY SLUG
+========================================= */
+const getProductBySlug = asyncHandler(async (req, res) => {
+  const { slug } = req.params;
+
+  const findProduct = await Product.findOne({ slug: String(slug).trim().toLowerCase() })
+    .populate("color")
+    .populate("size")
+    .populate("category")
+    .populate("printingPrice")
     .populate({ path: "colorVariants.color", model: "Color" });
 
   if (!findProduct) {
@@ -641,10 +662,6 @@ const getAllProduct = asyncHandler(async (req, res) => {
 
   if (queryObj.category) {
     const rawCategory = String(queryObj.category).trim();
-
-    // ✅ IMPORTANT:
-    // Matches products whose category field is an array and contains this category id
-    // Also works for single-value category fields
     filter.category = { $in: [rawCategory] };
   }
 
@@ -698,6 +715,10 @@ const getAllProduct = asyncHandler(async (req, res) => {
     filter.status = String(queryObj.status).trim();
   }
 
+  if (queryObj.slug) {
+    filter.slug = String(queryObj.slug).trim().toLowerCase();
+  }
+
   if (queryObj.isPrintable !== undefined) {
     const printable =
       queryObj.isPrintable === true ||
@@ -716,6 +737,7 @@ const getAllProduct = asyncHandler(async (req, res) => {
 
     filter.$or = [
       { title: rx },
+      { slug: rx },
       { description: rx },
       { brand: rx },
       { tags: rx },
@@ -745,6 +767,7 @@ const getAllProduct = asyncHandler(async (req, res) => {
     .populate("color")
     .populate("size")
     .populate("category")
+    .populate("printingPrice")
     .populate({ path: "colorVariants.color", model: "Color" })
     .sort(sortBy)
     .select(selectFields)
@@ -864,6 +887,7 @@ const rating = asyncHandler(async (req, res) => {
 module.exports = {
   createProduct,
   getaProduct,
+  getProductBySlug,
   getAllProduct,
   updateProduct,
   deleteProduct,
