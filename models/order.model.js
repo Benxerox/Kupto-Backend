@@ -34,10 +34,8 @@ const orderItemSchema = new mongoose.Schema(
 
     quantity: { type: Number, required: true, min: 1 },
 
-    // Exact unit price used at checkout
     unitPrice: { type: Number, required: true, min: 0 },
 
-    // Optional print breakdown
     printUnitPrice: { type: Number, default: 0, min: 0 },
     printPricingTitle: { type: String, default: null, trim: true },
     printSide: {
@@ -53,21 +51,18 @@ const orderItemSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
-    // Logged-in user optional
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
     },
 
-    // Guest info for guest checkout
     guestInfo: {
       fullName: { type: String, trim: true, default: null },
       phone: { type: String, trim: true, default: null },
       email: { type: String, trim: true, lowercase: true, default: null },
     },
 
-    // Shipping + contact info
     shippingInfo: {
       firstName: { type: String, required: true, trim: true },
       lastName: { type: String, required: true, trim: true },
@@ -85,13 +80,14 @@ const orderSchema = new mongoose.Schema(
         default: "delivery",
         trim: true,
       },
+
       pickupStation: { type: String, trim: true, default: "" },
     },
 
     paymentInfo: {
       paymentMethod: {
         type: String,
-        enum: ["cashOnDelivery", "airtelMoney", "mtnMomo"],
+        enum: ["cashOnDelivery", "dpo"],
         required: true,
         trim: true,
       },
@@ -105,7 +101,7 @@ const orderSchema = new mongoose.Schema(
 
       provider: {
         type: String,
-        enum: ["MTN", "Airtel", null],
+        enum: ["DPO", null],
         default: null,
       },
 
@@ -114,19 +110,15 @@ const orderSchema = new mongoose.Schema(
 
     note: { type: String, default: null, trim: true },
 
-    // Items
     orderItems: { type: [orderItemSchema], required: true, default: [] },
 
-    // Totals
     itemsTotal: { type: Number, required: true, min: 0 },
     shippingPrice: { type: Number, required: true, min: 0, default: 0 },
     setupFeeTotal: { type: Number, required: true, min: 0, default: 0 },
 
-    // Grand totals
     totalPrice: { type: Number, required: true, min: 0 },
     totalPriceAfterDiscount: { type: Number, required: true, min: 0 },
 
-    // New fields for confirmation email / tracking
     orderNumber: {
       type: String,
       required: true,
@@ -155,17 +147,14 @@ const orderSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Payment state
     isPaid: { type: Boolean, default: false },
     paidAt: { type: Date, default: null },
 
-    // Cancellation
     isCancelled: { type: Boolean, default: false },
     cancelledAt: { type: Date, default: null },
     cancelReason: { type: String, default: null, trim: true },
     cancelledBy: { type: String, enum: ["user", "admin"], default: null },
 
-    // Month tracking
     month: {
       type: Number,
       min: 1,
@@ -173,7 +162,6 @@ const orderSchema = new mongoose.Schema(
       default: () => new Date().getMonth() + 1,
     },
 
-    // Order status
     orderStatus: {
       type: String,
       enum: ["Ordered", "Shipped", "Delivered", "Cancelled"],
@@ -184,7 +172,6 @@ const orderSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Enforce month from createdAt
 orderSchema.pre("save", function (next) {
   if (this.isNew && this.createdAt) {
     this.month = new Date(this.createdAt).getMonth() + 1;
@@ -192,25 +179,25 @@ orderSchema.pre("save", function (next) {
   next();
 });
 
-// Auto-map provider from selected payment method
 orderSchema.pre("validate", function (next) {
-  if (this.paymentInfo?.paymentMethod === "airtelMoney") {
-    this.paymentInfo.provider = "Airtel";
-  } else if (this.paymentInfo?.paymentMethod === "mtnMomo") {
-    this.paymentInfo.provider = "MTN";
+  if (this.paymentInfo?.paymentMethod === "dpo") {
+    this.paymentInfo.provider = "DPO";
   } else if (this.paymentInfo?.paymentMethod === "cashOnDelivery") {
     this.paymentInfo.provider = null;
     this.paymentInfo.transactionId = null;
+    this.paymentInfo.status = "Pending";
+    this.isPaid = false;
+    this.paidAt = null;
   }
 
   next();
 });
 
-// Safety validation: either logged-in user OR guest contact must exist
 orderSchema.pre("validate", function (next) {
   if (!this.user) {
     const g = this.guestInfo || {};
     const hasContact = !!(g.phone || g.email);
+
     if (!hasContact) {
       this.invalidate(
         "guestInfo.phone",
@@ -218,10 +205,10 @@ orderSchema.pre("validate", function (next) {
       );
     }
   }
+
   next();
 });
 
-// Pickup validation
 orderSchema.pre("validate", function (next) {
   const shipping = this.shippingInfo || {};
 
@@ -237,7 +224,6 @@ orderSchema.pre("validate", function (next) {
   next();
 });
 
-// Delivery estimate validation
 orderSchema.pre("validate", function (next) {
   if (
     this.deliveryEstimateStart &&
@@ -249,6 +235,7 @@ orderSchema.pre("validate", function (next) {
       "deliveryEstimateEnd cannot be earlier than deliveryEstimateStart."
     );
   }
+
   next();
 });
 

@@ -162,20 +162,23 @@ const getEmailBrandHeaderHtml = ({
 
 const EMAIL_FONT_FAMILY = `"TT Travels Next", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
 
-const PAYMENT_METHODS = ["cashOnDelivery", "airtelMoney", "mtnMomo"];
+const PAYMENT_METHODS = ["cashOnDelivery", "dpo"];
 
 const getPaymentMethodLabel = (method = "") => {
   const m = String(method || "").trim();
+
   if (m === "cashOnDelivery") return "Cash on Delivery";
-  if (m === "airtelMoney") return "Airtel Money";
-  if (m === "mtnMomo") return "MTN MoMo";
+  if (m === "dpo") return "DPO Pay";
+
   return m || "Not specified";
 };
 
-const getMobileMoneyProviderFromMethod = (method = "") => {
+const getPaymentProviderFromMethod = (method = "") => {
   const m = String(method || "").trim();
-  if (m === "airtelMoney") return "Airtel";
-  if (m === "mtnMomo") return "MTN";
+
+  if (m === "dpo") return "DPO";
+  if (m === "cashOnDelivery") return null;
+
   return null;
 };
 
@@ -1541,7 +1544,7 @@ const createOrder = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Invalid payment method" });
   }
 
-  const detectedProvider = getMobileMoneyProviderFromMethod(paymentMethod);
+  const detectedProvider = getPaymentProviderFromMethod(paymentMethod);
 
   const safePaymentInfo = {
     paymentMethod,
