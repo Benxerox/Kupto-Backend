@@ -9,7 +9,9 @@ const {
 
 const { authMiddleware } = require("../middlewares/authMiddleware");
 
+
+
 router.post("/create-token", authMiddleware, createDpoToken);
-router.post("/verify-token", authMiddleware, verifyDpoToken);
+router.post("/verify-token", verifyDpoToken);
 
 module.exports = router;
