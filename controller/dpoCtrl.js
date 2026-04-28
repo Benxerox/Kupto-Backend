@@ -137,15 +137,19 @@ const createDpoToken = asyncHandler(async (req, res) => {
 
   const result = normalizeDpoResult(response.data);
 
-  if (String(result.Result) !== "000") {
+  // ✅ DPO can return Result as "000" or 0.
+  // Convert 0 => "000" so successful responses are accepted.
+  const dpoCode = String(result?.Result ?? "").padStart(3, "0");
+
+  if (dpoCode !== "000") {
     return res.status(400).json({
       success: false,
-      message: result.ResultExplanation || "DPO token creation failed",
+      message: result?.ResultExplanation || "DPO token creation failed",
       result,
     });
   }
 
-  const token = result.TransToken;
+  const token = result?.TransToken;
 
   if (!token) {
     return res.status(400).json({
@@ -170,10 +174,11 @@ const createDpoToken = asyncHandler(async (req, res) => {
 
   return res.status(200).json({
     success: true,
-    message: "DPO token created successfully",
+    message: result?.ResultExplanation || "DPO token created successfully",
     token,
     orderId: order._id,
     paymentUrl: buildPaymentUrl(token),
+    result,
   });
 });
 
@@ -206,7 +211,8 @@ const verifyDpoToken = asyncHandler(async (req, res) => {
   });
 
   const result = normalizeDpoResult(response.data);
-  const paid = String(result.Result) === "000";
+  const dpoCode = String(result?.Result ?? "").padStart(3, "0");
+  const paid = dpoCode === "000";
 
   let order = null;
 
@@ -265,7 +271,7 @@ const verifyDpoToken = asyncHandler(async (req, res) => {
 
   return res.status(400).json({
     success: false,
-    message: result.ResultExplanation || "Payment not verified",
+    message: result?.ResultExplanation || "Payment not verified",
     order,
     result,
   });
