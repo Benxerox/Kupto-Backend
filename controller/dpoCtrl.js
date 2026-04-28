@@ -36,15 +36,15 @@ const getFrontendUrl = () =>
 const buildPaymentUrl = (token) => {
   const paymentUrl = getRequiredEnv("DPO_PAYMENT_URL");
 
-  if (paymentUrl.includes("?ID=")) {
-    return `${paymentUrl}${token}`;
+  if (paymentUrl.includes("TransToken")) {
+    return paymentUrl.replace("TransToken", encodeURIComponent(token));
   }
 
   if (paymentUrl.endsWith("=")) {
-    return `${paymentUrl}${token}`;
+    return `${paymentUrl}${encodeURIComponent(token)}`;
   }
 
-  return `${paymentUrl}?ID=${token}`;
+  return `${paymentUrl}${paymentUrl.includes("?") ? "&" : "?"}ID=${encodeURIComponent(token)}`;
 };
 
 /* =========================================================
