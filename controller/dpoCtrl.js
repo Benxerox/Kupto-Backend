@@ -111,7 +111,7 @@ const createDpoToken = asyncHandler(async (req, res) => {
     <RedirectURL>${escapeXml(redirectUrl)}</RedirectURL>
     <BackURL>${escapeXml(backUrl)}</BackURL>
     <CompanyRefUnique>0</CompanyRefUnique>
-    <PTL>5</PTL>
+    <PTL>60</PTL>
     <customerFirstName>${escapeXml(shippingInfo.firstName || "")}</customerFirstName>
     <customerLastName>${escapeXml(shippingInfo.lastName || "")}</customerLastName>
     <customerEmail>${escapeXml(shippingInfo.email || "")}</customerEmail>
