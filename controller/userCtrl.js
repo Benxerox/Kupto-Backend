@@ -416,7 +416,9 @@ const generateAdminOrderNotificationHtml = (
           })}
         </div>
 
-        <h1 style="margin:0 0 12px; font-size:22px;">New Order Received</h1>
+          <h1 style="margin:0 0 12px; font-size:22px;">
+            Order Created - Awaiting Payment
+          </h1>
 
         <div style="font-size:13px; color:#222; line-height:1.8;">
           <div><strong>Order ID:</strong> ${escapeHtml(order?._id || "")}</div>
@@ -626,12 +628,12 @@ const generateOrderConfirmationHtml = (
           </div>
 
           <div style="font-size:14px; line-height:1.2; font-weight:700; color:#111; margin-bottom:14px;">
-            Your order has been confirmed.
+            Your order has been created and is awaiting payment.
           </div>
 
           <div style="font-size:14px; line-height:1.7; color:#333; margin-bottom:24px;">
             Thank you for shopping with Kupto. Your order
-            <strong>${orderNumber}</strong> has been confirmed.<br />
+            <strong>${orderNumber}</strong> has been created and is currently awaiting payment confirmation.<br />
             We'll deliver your package to your address between
             <strong>${deliveryText}</strong>. You'll get a notification when it's out for delivery.
           </div>
@@ -692,7 +694,8 @@ const generateOrderConfirmationHtml = (
           </div>
 
           <div style="font-size:12px; color:#888; line-height:1.7; border-top:1px solid #f0f0f0; padding-top:18px;">
-            This is an order confirmation email for order <strong>${orderNumber}</strong>.
+            
+            This is an order status email for order <strong>${orderNumber}</strong>.
           </div>
         </div>
       </div>
@@ -1669,32 +1672,44 @@ const createOrder = asyncHandler(async (req, res) => {
       safePaymentInfo
     );
 
-    if (receiptTo) {
-      await sendEmail({
-        to: receiptTo,
-        subject: `Your Kupto Order ${buildOrderNumber(populatedOrder)} has been Confirmed`,
-        text: `Thank you for shopping with Kupto. Your order ${buildOrderNumber(
-          populatedOrder
-        )} has been confirmed.`,
-        html: confirmationHtml,
-      });
-    }
+    const isDpoPending =
+  safePaymentInfo.paymentMethod === "dpo" &&
+  String(safePaymentInfo.status || "").toLowerCase() === "pending";
 
-    await sendEmail({
-      to: adminEmail,
-      subject: `New Order Received - ${order._id}`,
-      text: `A new order has been placed by ${safeShipping.firstName} ${safeShipping.lastName}. Total: ${formatUGX(
+if (receiptTo) {
+  await sendEmail({
+    to: receiptTo,
+    subject: isDpoPending
+      ? `Kupto Order ${buildOrderNumber(populatedOrder)} Created - Awaiting Payment`
+      : `Your Kupto Order ${buildOrderNumber(populatedOrder)} has been Confirmed`,
+    text: isDpoPending
+      ? `Your Kupto order ${buildOrderNumber(populatedOrder)} has been created and is awaiting payment.`
+      : `Thank you for shopping with Kupto. Your order ${buildOrderNumber(populatedOrder)} has been confirmed.`,
+    html: confirmationHtml,
+  });
+}
+
+await sendEmail({
+  to: adminEmail,
+  subject: isDpoPending
+    ? `Order Created - Awaiting Payment - ${order._id}`
+    : `New Order Received - ${order._id}`,
+  text: isDpoPending
+    ? `A pending DPO order was created by ${safeShipping.firstName} ${safeShipping.lastName}. Total: ${formatUGX(
+        computedTotalPrice
+      )}. Awaiting payment.`
+    : `A new order has been placed by ${safeShipping.firstName} ${safeShipping.lastName}. Total: ${formatUGX(
         computedTotalPrice
       )}. Payment Method: ${getPaymentMethodLabel(safePaymentInfo.paymentMethod)}.`,
-      html: generateAdminOrderNotificationHtml(
-        populatedOrder,
-        safeShipping,
-        populatedItems,
-        computedTotalPrice,
-        safePaymentInfo,
-        note
-      ),
-    });
+  html: generateAdminOrderNotificationHtml(
+    populatedOrder,
+    safeShipping,
+    populatedItems,
+    computedTotalPrice,
+    safePaymentInfo,
+    note
+  ),
+});
   } catch (e) {
     console.error("Order email sending failed:", e);
   }

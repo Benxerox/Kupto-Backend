@@ -4,6 +4,7 @@ const asyncHandler = require("express-async-handler");
 const { XMLParser } = require("fast-xml-parser");
 
 const Order = require("../models/order.model");
+const Cart = require("../models/cartModel");
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -120,9 +121,7 @@ const createDpoToken = asyncHandler(async (req, res) => {
   <Services>
     <Service>
       <ServiceType>${escapeXml(getRequiredEnv("DPO_SERVICE_TYPE"))}</ServiceType>
-      <ServiceDescription>${escapeXml(
-        `Kupto Order ${order.orderNumber || order._id}`
-      )}</ServiceDescription>
+      <ServiceDescription>${escapeXml(`Kupto Order ${order.orderNumber || order._id}`)}</ServiceDescription>
       <ServiceDate>${serviceDate}</ServiceDate>
     </Service>
   </Services>
@@ -136,9 +135,6 @@ const createDpoToken = asyncHandler(async (req, res) => {
   });
 
   const result = normalizeDpoResult(response.data);
-
-  // ✅ DPO can return Result as "000" or 0.
-  // Convert 0 => "000" so successful responses are accepted.
   const dpoCode = String(result?.Result ?? "").padStart(3, "0");
 
   if (dpoCode !== "000") {
@@ -247,6 +243,9 @@ const verifyDpoToken = asyncHandler(async (req, res) => {
     order.paidAt = order.paidAt || new Date();
 
     await order.save();
+
+    // ✅ Clear cart only after payment is verified
+    await Cart.deleteMany({ userId: order.user });
 
     return res.status(200).json({
       success: true,
