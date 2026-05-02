@@ -1082,9 +1082,11 @@ const loginAdmin = asyncHandler(async (req, res) => {
   res.json(sessionPayload);
 });
 
+
 // ✅ HANDLE REFRESH TOKEN
 const handleRefreshToken = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
+
   if (!cookie?.refreshToken) {
     res.status(401);
     throw new Error("No Refresh Token in Cookies");
@@ -1100,6 +1102,7 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
 
   try {
     const refreshSecret = process.env.JWT_REFRESH_SECRET;
+
     if (!refreshSecret) {
       res.status(500);
       throw new Error("JWT refresh secret is missing on server");
@@ -1112,22 +1115,20 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
       throw new Error("There is something wrong with the refresh token");
     }
 
-    removeRefreshTokenFromUser(user, refreshToken);
-
-    const newRefreshToken = generateRefreshToken(user._id);
-    addRefreshTokenToUser(user, newRefreshToken);
-
-    await user.save();
-
-    res.cookie("refreshToken", newRefreshToken, getCookieOptions());
-
+    // ✅ Do NOT rotate refresh token here
+    // Just issue a new access token
     const accessToken = generateToken(user._id);
-    res.json({ token: accessToken, accessToken });
+
+    return res.json({
+      token: accessToken,
+      accessToken,
+    });
   } catch (err) {
     removeRefreshTokenFromUser(user, refreshToken);
     await user.save();
 
     res.clearCookie("refreshToken", getClearCookieOptions());
+
     res.status(401);
     throw new Error("Invalid or expired refresh token");
   }
