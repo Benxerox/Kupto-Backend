@@ -131,28 +131,27 @@ app.get("/api/sitemap.xml", async (req, res) => {
     const urls = products
       .filter((p) => p.slug)
       .map(
-        (p) => `
-  <url>
-    <loc>https://www.kupto.co/product/${p.slug}</loc>
-    <lastmod>${new Date(p.updatedAt || Date.now()).toISOString()}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>`
+        (p) => `<url>
+  <loc>https://www.kupto.co/product/${p.slug}</loc>
+  <lastmod>${new Date(p.updatedAt || Date.now()).toISOString()}</lastmod>
+  <changefreq>weekly</changefreq>
+  <priority>0.8</priority>
+</url>`
       )
-      .join("");
+      .join("\n");
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>https://www.kupto.co/</loc>
-    <changefreq>daily</changefreq>
-    <priority>1.0</priority>
-  </url>
+<url>
+  <loc>https://www.kupto.co/</loc>
+  <changefreq>daily</changefreq>
+  <priority>1.0</priority>
+</url>
 ${urls}
 </urlset>`;
 
-    res.set("Content-Type", "application/xml");
-    return res.status(200).send(xml);
+    res.set("Content-Type", "application/xml; charset=utf-8");
+    return res.status(200).send(xml.trim());
   } catch (error) {
     console.error("Sitemap error:", error);
     return res.status(500).send("Sitemap generation failed");
