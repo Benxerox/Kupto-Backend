@@ -577,9 +577,16 @@ const getaProduct = asyncHandler(async (req, res) => {
    GET A PRODUCT BY SLUG
 ========================================= */
 const getProductBySlug = asyncHandler(async (req, res) => {
-  const { slug } = req.params;
+  const raw = String(req.params.slug || "").trim();
+  const normalizedSlug = raw.toLowerCase();
 
-  const findProduct = await Product.findOne({ slug: String(slug).trim().toLowerCase() })
+  const isObjectId = /^[0-9a-fA-F]{24}$/.test(raw);
+
+  const query = isObjectId
+    ? { $or: [{ _id: raw }, { slug: normalizedSlug }] }
+    : { slug: normalizedSlug };
+
+  const findProduct = await Product.findOne(query)
     .populate("color")
     .populate("size")
     .populate("category")
@@ -590,7 +597,10 @@ const getProductBySlug = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Product not found" });
   }
 
-  return res.json({ data: findProduct });
+  return res.json({
+    data: findProduct,
+    redirectTo: findProduct.slug ? `/product/${findProduct.slug}` : null,
+  });
 });
 
 /* =========================================
