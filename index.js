@@ -26,6 +26,7 @@ const uploadFileRouter = require("./routes/uploadFileRoute");
 const uploadPostRouter = require("./routes/uploadPostRoute");
 const otpRouter = require("./routes/otpRoute");
 const dpoRouter = require("./routes/dpoRoute");
+const Product = require("./models/productModel");
 
 // Middlewares
 const cookieParser = require("cookie-parser");
@@ -123,9 +124,46 @@ app.get("/", (req, res) => {
   res.send("Welcome to the homepage!");
 });
 
+app.get("/api/sitemap.xml", async (req, res) => {
+  try {
+    const products = await Product.find({}).select("slug updatedAt");
+
+    const urls = products
+      .filter((p) => p.slug)
+      .map(
+        (p) => `
+  <url>
+    <loc>https://www.kupto.co/product/${p.slug}</loc>
+    <lastmod>${new Date(p.updatedAt || Date.now()).toISOString()}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>`
+      )
+      .join("");
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://www.kupto.co/</loc>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+${urls}
+</urlset>`;
+
+    res.set("Content-Type", "application/xml");
+    return res.status(200).send(xml);
+  } catch (error) {
+    console.error("Sitemap error:", error);
+    return res.status(500).send("Sitemap generation failed");
+  }
+});
+
 // Not Found and Error Handler
 app.use(notFound);
 app.use(errorHandler);
+
+
 
 // Start the server
 app.listen(PORT, () => {
