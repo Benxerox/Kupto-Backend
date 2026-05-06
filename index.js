@@ -27,6 +27,7 @@ const uploadPostRouter = require("./routes/uploadPostRoute");
 const otpRouter = require("./routes/otpRoute");
 const dpoRouter = require("./routes/dpoRoute");
 const Product = require("./models/productModel");
+const googleFeedRouter = require("./routes/googleFeedRoute");
 
 // Middlewares
 const cookieParser = require("cookie-parser");
@@ -118,6 +119,8 @@ app.use("/api/otp", otpRouter);
 
 // ✅ DPO payment route
 app.use("/api/dpo", dpoRouter);
+
+app.use("/", googleFeedRouter);
 
 // Root route
 app.get("/", (req, res) => {
